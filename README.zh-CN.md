@@ -43,7 +43,7 @@
 - **本地优先**——每个 session、knowledge 条目、experience 记录都是 `.garage/` 下可读的 Markdown / JSON / YAML 文件。明天不用 garage-agent 了，数据在任何文本编辑器里都还能打开。
 - **三个 first-class 宿主**——Claude Code、Cursor、OpenCode。同一套 pack、同一套 skills、同一份记忆——`garage init --hosts claude,cursor,opencode --yes` 一次物化到三个宿主的原生目录。
 - **完整的记忆飞轮**——`garage sync` 把 top-N knowledge + 最近 experience 推到每个宿主的 context surface（`CLAUDE.md` / `.cursor/rules/garage-context.mdc` / `.opencode/AGENTS.md`）；`garage session import --from <host>` 把宿主对话历史回流给系统提取。
-- **能跟你走的 skill packs**——v0.1.0 自带 4 个 pack（`garage` / `coding` / `writing` / `search`），共 **38 个 skill + 3 个生产 agent**。任意 git URL 装别人的 pack；用 `garage pack publish` 发自己的。
+- **能跟你走的 skill packs**——v0.1.0 自带 5 个 pack（`garage` / `coding` / `writing` / `search` / `code-audit`），共 **42 个 skill + 5 个 agent**（`garage` 3 个 + `code-audit` 2 个）。任意 git URL 装别人的 pack；用 `garage pack publish` 发自己的。
 - **系统会主动建议下一个 skill**——当同一个 `(problem_domain, tag)` 模式出现 5+ 次，`garage skill suggest` 会出 SKILL.md 草稿；`garage skill promote` 把草稿落到真正的 pack。
 - **Workflow 召回**——`garage recall workflow --problem-domain cli-design` 返回历史上对类似问题真正奏效过的 skill 链路，按出现频次排。
 - **隐私友好的分享**——`garage pack publish` 推送前自动扫敏感模式；`garage knowledge export --anonymize` 让你能分享所学但不泄漏机密。
@@ -57,8 +57,9 @@
 | `packs/coding/` | 0.5.0 | 29 | 0 | 完整 HarnessFlow 工程工作流（spec → design → tasks → TDD → review → finalize），反向同步自 `harness-flow` main（对齐上游 v0.6.0 能力集） |
 | `packs/writing/` | 0.2.0 | 5 | 0 | `blog-writing` / `humanizer-zh` / `hv-analysis` / `khazix-writer` / `magazine-web-ppt` |
 | `packs/search/` | 0.1.0 | 1 | 0 | `ai-weekly`（X/Twitter 中文周报） |
+| `packs/code-audit/` | 0.1.0 | 4 | 2 | 存量代码 bug 审查（四 skill + reviewer/verifier 双 agent） |
 
-`garage init --hosts all` 一次物化 **114 个 skill 文件 + 6 个 agent 文件**（38 skills × 3 hosts；agent 仅装到 claude + opencode——Cursor 暂无 agent surface）。
+`garage init --hosts all` 一次物化 **126 个 skill 文件 + 10 个 agent 文件**（42 skills × 3 hosts；agent 仅装到 claude + opencode——Cursor 暂无 agent surface）。
 
 ## 安装
 

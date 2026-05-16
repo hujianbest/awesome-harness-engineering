@@ -71,7 +71,14 @@ class TestInstallProductionAgents:
         agents_dir = tmp_path / ".claude" / "agents"
         assert agents_dir.is_dir()
         agent_files = sorted(p.name for p in agents_dir.glob("*.md"))
-        assert agent_files == ["blog-writing-agent.md", "code-review-agent.md", "garage-sample-agent.md"]
+        # F011 garage agents (3) + code-audit Slice A agents (2) = 5 total.
+        assert agent_files == [
+            "blog-writing-agent.md",
+            "code-audit-reviewer-agent.md",
+            "code-audit-verifier-agent.md",
+            "code-review-agent.md",
+            "garage-sample-agent.md",
+        ]
 
     def test_install_to_opencode_includes_3_agents(self, tmp_path: Path) -> None:
         (tmp_path / "packs").symlink_to(PACKS_ROOT)
@@ -83,7 +90,14 @@ class TestInstallProductionAgents:
         agents_dir = tmp_path / ".opencode" / "agent"
         assert agents_dir.is_dir()
         agent_files = sorted(p.name for p in agents_dir.glob("*.md"))
-        assert agent_files == ["blog-writing-agent.md", "code-review-agent.md", "garage-sample-agent.md"]
+        # F011 garage agents (3) + code-audit Slice A agents (2) = 5 total.
+        assert agent_files == [
+            "blog-writing-agent.md",
+            "code-audit-reviewer-agent.md",
+            "code-audit-verifier-agent.md",
+            "code-review-agent.md",
+            "garage-sample-agent.md",
+        ]
 
     def test_cursor_no_agent_surface(self, tmp_path: Path) -> None:
         """Cursor 不装 agent (与 F007 既有行为一致)."""

@@ -38,6 +38,16 @@ for s in "${CODING_SKILLS[@]}"; do
   fi
 done
 
+# code-audit pack (Slice A)
+CODE_AUDIT_SKILLS=(audit-planner audit-reporter audit-reviewer audit-verifier)
+for s in "${CODE_AUDIT_SKILLS[@]}"; do
+  if [ -d "packs/code-audit/skills/$s" ]; then
+    ln -sf "../../packs/code-audit/skills/$s" ".agents/skills/$s"
+  else
+    echo "WARN: packs/code-audit/skills/$s missing; skipping" >&2
+  fi
+done
+
 # Garage common skills
 GARAGE_SKILLS=(find-skills writing-skills)
 for s in "${GARAGE_SKILLS[@]}"; do
