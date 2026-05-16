@@ -145,9 +145,9 @@ class TestF007BackwardCompat:
         """packs/ in workspace root (no source_url) should list as 'local'."""
         workspace = Path(__file__).resolve().parents[3]
         listed = list_installed_packs(workspace)
-        # All 4 existing packs (coding/garage/search/writing) listed
+        # All 5 existing packs (code-audit/coding/garage/search/writing) listed
         pack_ids = sorted(p["pack_id"] for p in listed)
-        assert pack_ids == ["coding", "garage", "search", "writing"]
+        assert pack_ids == ["code-audit", "coding", "garage", "search", "writing"]
         # All have source_url == "local" (no source_url field in pack.json)
         for p in listed:
             assert p["source_url"] == "local", (

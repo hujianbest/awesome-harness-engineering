@@ -48,8 +48,9 @@ Garage 自带的可分发 skills + agents 沉淀在仓库 `packs/<pack-id>/` 下
 | `packs/coding/` | `0.4.0` | 24 | 0 | HarnessFlow 工程工作流 family（23 hf-* + using-hf-workflow；per-skill self-contained 布局，每个 skill 自带 references/；reverse-sync 自 hujianbest/harness-flow upstream v0.1.0 pre-release；garage-side 第一方增量 = hf-workflow-router step 3.5 F014 Workflow Recall）|
 | `packs/search/` | `0.1.0` | 1 | 0 | 信息聚合 / curation family：ai-weekly（X/Twitter 周报，Priority 1/2/3 中文报告）|
 | `packs/writing/` | `0.2.0` | 5 | 0 | 内容创作 family：blog-writing / humanizer-zh / hv-analysis / khazix-writer / magazine-web-ppt + family-level prompts/横纵分析法.md |
+| `packs/code-audit/` | `0.1.0` | 4 | 2 | 存量代码 bug 审查 family：audit-planner / audit-reviewer / audit-verifier / audit-reporter + 双 agent（code-audit-reviewer-agent 一审 + code-audit-verifier-agent 独立复核）；按模块切分、双 agent 串行确认、输出 HTML（必需）+ Excel（可选 Slice C）报告；Slice A 落 pack 骨架，Slice B/C/D 落渲染脚本与端到端 dogfood |
 
-合计 4 个 pack × 33 个 skill × 3 个宿主 = `garage init --hosts all` 物化 99 个 skill 文件 + 6 个 agent 文件（3 agent × 2 hosts；agent 仅装到 claude / opencode）。
+合计 5 个 pack × 37 个 skill × 3 个宿主 = `garage init --hosts all` 物化 111 个 skill 文件 + 10 个 agent 文件（5 agent × 2 hosts；agent 仅装到 claude / opencode）。
 
 ### 入口指针（FR-710 5 分钟冷读链）
 
@@ -66,12 +67,12 @@ Garage 自带的可分发 skills + agents 沉淀在仓库 `packs/<pack-id>/` 下
 
 ### 本仓库自身 IDE 加载入口（F008 ADR-D8-2 候选 C）
 
-F008 cycle 把 `.agents/skills/` 整个删除，改为 dogfood 安装产物作为 IDE 加载入口。**首次 clone 本仓库的贡献者**必须在仓库根跑一次 dogfood 才能在 IDE 内加载到这 33 个 skill：
+F008 cycle 把 `.agents/skills/` 整个删除，改为 dogfood 安装产物作为 IDE 加载入口。**首次 clone 本仓库的贡献者**必须在仓库根跑一次 dogfood 才能在 IDE 内加载到这 37 个 skill：
 
 ```bash
 cd /path/to/garage-agent
 garage init --hosts cursor,claude
-# → 在仓库根 dogfood 出 .cursor/skills/ + .claude/skills/，IDE 即可加载 33 个 skill
+# → 在仓库根 dogfood 出 .cursor/skills/ + .claude/skills/，IDE 即可加载 37 个 skill
 # 注：.cursor/skills/ + .claude/skills/ 已在 .gitignore 内排除，不入 git 追踪
 # → AGENTS.md / README.md 更新后无需再次跑 dogfood，但 packs/ 内容物变化时需要重跑
 ```
