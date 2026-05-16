@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "pack_id": "code-audit",
+  "version": "0.1.0",
+  "description": "Existing-code bug audit family: 4 skills (audit-planner / audit-reviewer / audit-verifier / audit-reporter) + 2 agents (reviewer/verifier roles for two-stage confirmation). Slices a repository into modules, runs a primary reviewer agent to draft findings with evidence (file, line, category, severity, reasoning, code snippet, suggested fix), then runs an independent verifier agent to confirm/reject/upgrade/downgrade each finding with its own evidence_check. Emits a single-file HTML report (always) and an optional Excel workbook. Distinct from packs/coding/hf-code-review (PR diff review, single agent, no report).",
+  "skills": [
+    "audit-planner",
+    "audit-reporter",
+    "audit-reviewer",
+    "audit-verifier"
+  ],
+  "agents": [
+    "code-audit-reviewer-agent",
+    "code-audit-verifier-agent"
+  ]
+}

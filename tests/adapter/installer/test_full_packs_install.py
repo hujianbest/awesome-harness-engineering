@@ -48,29 +48,37 @@ def _link_packs(tmp_path: Path) -> None:
 class TestFullPacksInstall:
     """End-to-end test: real packs/ installed into tmp workspace."""
 
-    def test_four_packs_total_33_skills_INV1(self) -> None:
-        """INV-1: sum(pack.json.skills[] for pack in [coding, garage, search, writing]) == 33.
+    def test_five_packs_total_37_skills_INV1(self) -> None:
+        """INV-1: sum(pack.json.skills[] for pack in [code-audit, coding, garage, search, writing]) == 37.
 
-        Trace: 32 (coding 24 + garage 3 + search 1 + writing 4) → 33 after writing pack
-        adds magazine-web-ppt.
+        Trace: 33 (coding 24 + garage 3 + search 1 + writing 5) → 37 after code-audit pack
+        adds audit-planner + audit-reviewer + audit-verifier + audit-reporter (Slice A).
         """
         packs = discover_packs(PACKS_ROOT)
         # Index by pack_id for stable assertions regardless of pack order.
         by_id = {p.pack_id: p for p in packs}
-        assert set(by_id) == {"coding", "garage", "search", "writing"}, (
-            f"expected exactly 4 packs, got {sorted(by_id)}"
+        assert set(by_id) == {"code-audit", "coding", "garage", "search", "writing"}, (
+            f"expected exactly 5 packs, got {sorted(by_id)}"
         )
-        # Per task plan T1b/T2/T3 acceptance + coding v0.3.0 reverse-sync + search hotfix:
+        # Per task plan T1b/T2/T3 acceptance + coding v0.3.0 reverse-sync + search hotfix
+        # + code-audit Slice A:
+        assert len(by_id["code-audit"].skills) == 4
         assert len(by_id["coding"].skills) == 24
         assert len(by_id["garage"].skills) == 3
         assert len(by_id["search"].skills) == 1  # ai-weekly only
         assert len(by_id["writing"].skills) == 5
         # INV-1 hard gate.
         total = sum(len(p.skills) for p in packs)
-        assert total == 33, f"INV-1 violated: total skills = {total} (want 33)"
+        assert total == 37, f"INV-1 violated: total skills = {total} (want 37)"
         # F011: garage agents 1 → 3 (sample + code-review + blog-writing)
         assert len(by_id["garage"].agents) == 3, (
             f"F011: packs/garage/agents/ should have 3 (sample + code-review + blog-writing); got {by_id['garage'].agents}"
+        )
+        # code-audit Slice A: 2 agents (reviewer + verifier)
+        assert len(by_id["code-audit"].agents) == 2, (
+            f"code-audit: packs/code-audit/agents/ should have 2 "
+            f"(code-audit-reviewer-agent + code-audit-verifier-agent); "
+            f"got {by_id['code-audit'].agents}"
         )
 
     def test_family_asset_uniqueness_INV2(self) -> None:
@@ -90,8 +98,11 @@ class TestFullPacksInstall:
             )
 
     def test_install_packs_three_hosts_FR806(self, tmp_path: Path) -> None:
-        """FR-806 acceptance #1-#3: garage init --hosts all writes 33 skills × 3 hosts
-        + 3 agents × 2 hosts (claude + opencode; cursor has no agent surface).
+        """FR-806 acceptance #1-#3: garage init --hosts all writes 37 skills × 3 hosts
+        + 5 agents × 2 hosts (claude + opencode; cursor has no agent surface).
+
+        Trace: F011 ledger said 33 skills + 3 agents (garage). code-audit Slice A adds
+        4 skills + 2 agents → 37 skills + 5 agents (garage 3 + code-audit 2).
         """
         _link_packs(tmp_path)
 
@@ -101,31 +112,33 @@ class TestFullPacksInstall:
             hosts=["claude", "cursor", "opencode"],
         )
 
-        # Per-host skill count == 33 (coding 24 + garage 3 + search 1 + writing 5).
+        # Per-host skill count == 37 (coding 24 + garage 3 + search 1 + writing 5 + code-audit 4).
         for host_dir in [".claude/skills", ".cursor/skills", ".opencode/skills"]:
             host_root = tmp_path / host_dir
             assert host_root.is_dir(), f"{host_dir} not created"
             skill_subdirs = [d for d in host_root.iterdir() if d.is_dir()]
-            assert len(skill_subdirs) == 33, (
-                f"{host_dir} has {len(skill_subdirs)} skill dirs, expected 33"
+            assert len(skill_subdirs) == 37, (
+                f"{host_dir} has {len(skill_subdirs)} skill dirs, expected 37"
             )
 
         # Manifest matches.
         manifest = read_manifest(tmp_path / ".garage")
         assert manifest is not None
         assert sorted(manifest.installed_hosts) == ["claude", "cursor", "opencode"]
-        assert sorted(manifest.installed_packs) == ["coding", "garage", "search", "writing"]
+        assert sorted(manifest.installed_packs) == [
+            "code-audit", "coding", "garage", "search", "writing"
+        ]
 
-        # 33 skills × 3 hosts = 99 skill files; F011: 3 agents × 2 hosts (claude + opencode,
-        # cursor adapter returns None for target_agent_path) = 6 agent files. Total 105.
-        assert len(manifest.files) == 105, (
-            f"manifest.files = {len(manifest.files)}, expected 105 (99 skills + 6 agents)"
+        # 37 skills × 3 hosts = 111 skill files; 5 agents × 2 hosts (claude + opencode,
+        # cursor adapter returns None for target_agent_path) = 10 agent files. Total 121.
+        assert len(manifest.files) == 121, (
+            f"manifest.files = {len(manifest.files)}, expected 121 (111 skills + 10 agents)"
         )
 
         # Summary returned (skills counted per-write, hence × 3 here too).
         assert isinstance(summary.n_skills, int)
-        assert summary.n_skills == 99  # 33 × 3
-        assert summary.n_agents == 6  # 3 agents × 2 hosts (claude + opencode)
+        assert summary.n_skills == 111  # 37 × 3
+        assert summary.n_agents == 10  # 5 agents × 2 hosts (claude + opencode)
 
     def test_skill_byte_level_sample_INV4(self, tmp_path: Path) -> None:
         """INV-4 + CON-803: a sampled hf-* SKILL.md installed to .claude/skills/

@@ -3868,14 +3868,14 @@ class TestPackLsCommand:
         assert "Installed packs (0 total):" in captured.out
 
     def test_ls_workspace_packs(self, tmp_path: Path, capsys) -> None:
-        # Use real workspace with 4 packs
+        # Use real workspace with 5 packs (code-audit added in Slice A)
         REPO_ROOT = Path(__file__).resolve().parents[1]
         rc = main(["pack", "ls", "--path", str(REPO_ROOT)])
         assert rc == 0
         captured = capsys.readouterr()
-        assert "Installed packs (4 total):" in captured.out
-        # All 4 packs listed alphabetically
-        for pack_id in ["coding", "garage", "search", "writing"]:
+        assert "Installed packs (5 total):" in captured.out
+        # All 5 packs listed alphabetically
+        for pack_id in ["code-audit", "coding", "garage", "search", "writing"]:
             assert pack_id in captured.out
         # All show '[local]' since no source_url
         assert "[local]" in captured.out
