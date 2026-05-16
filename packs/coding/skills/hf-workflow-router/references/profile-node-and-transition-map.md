@@ -17,6 +17,7 @@
 - `hf-product-discovery`（conditional：当会话从模糊产品 idea 起步、或已存在 discovery 草稿时激活）
 - `hf-discovery-review`（conditional：`hf-product-discovery` 被激活后存在）
 - `hf-experiment`（conditional：discovery / spec 中存在 Blocking 或低 confidence 关键假设时，作为上游 stage 的 **conditional insertion**）
+- `hf-browser-testing`（conditional：`hf-test-driven-dev` GREEN 之后，当 spec / ui-design 声明 UI surface，或当前 active task / 代码影响面触碰前端运行面时激活，作为 verify 阶段的 runtime evidence side node；激活判定见本文件的 `hf-browser-testing 激活与回流` 一节）
 - `hf-specify`
 - `hf-spec-review`
 - `规格真人确认`
@@ -41,7 +42,9 @@
 
 - `hf-ui-design` / `hf-ui-review` 属于 **design stage 内部的 conditional peer**，不是 side-line。激活判定见 `ui-surface-activation.md`
 - `hf-experiment` 属于 **discovery / spec stage 内部的 conditional insertion**（Phase 0 引入）：在 discovery 或 spec 中发现 Blocking / 低 confidence 关键假设时临时插入，完成后回到插入点（`hf-product-discovery` / `hf-discovery-review` / `hf-specify` / `hf-spec-review`）；激活判定见本文件的 `hf-experiment 激活与回流` 一节
+- `hf-browser-testing` 属于 **verify stage 内部的 conditional side node**（v0.2.0 / ADR-002 D1 / D7 引入）：在 `hf-test-driven-dev` GREEN 之后，当 task 或代码影响面触碰前端运行面时由 router 拐点拉入；产出 runtime evidence bundle（DOM / Console / Network 三层），不签发 verdict，不修改主链 FSM 主路径；完成后回到下游 gate（`hf-regression-gate` / `hf-completion-gate`）。若代码事实显示触碰 UI / API client / dev-server 配置，但 spec / tasks 未声明对应 runtime surface，router 必须回上游补工件，不得静默跳过。激活判定见本文件的 `hf-browser-testing 激活与回流` 一节
 - `standard` / `lightweight` profile 不加入 `hf-ui-design` / `hf-ui-review` / `hf-product-discovery` / `hf-experiment` 作为主链节点；若新 iteration 需要补 discovery 或假设验证，应升级到 `full`
+- `hf-browser-testing` 不依赖 profile，全 profile 共享同一激活规则（runtime surface 声明或代码事实 + 当前 task 触碰前端 / API client / dev-server 配置）
 
 ### standard profile 主链推荐节点
 
@@ -129,7 +132,6 @@ branches:
 说明：
 
 - `hf-test-driven-dev` 到 `hf-completion-gate` 描述的是“单个 `Current Active Task` 的实现与质量闭环”
-- `hf-bug-patterns` 作为独立经验固化 skill 保留，但不属于 canonical 主链节点；只有在 AI 或用户显式想沉淀重复错误模式时，才应 direct invoke
 - `hf-completion-gate` 返回 `通过` 后，不默认等于“整个 workflow 已完成”；父会话必须先判断是否仍有 approved 且 dependency-ready 的剩余任务
 - 若存在唯一 `next-ready task`，先回到 `hf-workflow-router` 锁定新的 `Current Active Task`，再重新进入 `hf-test-driven-dev`
 - 只有在没有剩余任务时，才进入 `hf-finalize`
@@ -348,3 +350,71 @@ branches:
 - 若下一推荐节点不是 approval node，也不是 hard stop，立刻在同一轮中进入该节点，不等待用户确认
 
 若该下一推荐节点是 review 节点，则“进入该节点”的含义是：按 `references/review-dispatch-protocol.md` 派发 reviewer subagent，并按 `references/reviewer-return-contract.md` 消费返回摘要，而不是在父会话内联执行 review。
+
+## `hf-browser-testing` 激活与回流
+
+`hf-browser-testing`（v0.2.0 / ADR-002 D1 / D7 引入）是 verify 阶段的 conditional side node，**不修改主链 FSM 主路径**。router 在以下条件满足时把它作为 `hf-test-driven-dev` 的下一推荐节点：
+
+1. `hf-test-driven-dev` 已完成当前 active task 的 GREEN（progress.md 中存在 GREEN 交接块且单元 fresh evidence 可读）。
+2. runtime surface 已被工件声明：`features/<active>/spec.md` 中存在 UI surface / API client / runtime surface 段，或 `hf-ui-design` 已批准，或 `tasks.md` 的当前 task 明确列出 browser smoke / API contract / full-stack smoke 证据。
+3. 当前 active task 影响面触碰前端运行面，依据 `tasks.md`、design 工件、实现交接块或变更文件判断。触发信号包括：可见页面 / route / App 根组件、UI library provider、表单交互、前端 API client / fetch / auth store、Vite proxy / env / dev-server 配置、浏览器存储、网络错误处理。
+
+处理规则：
+
+- 条件 1 不满足 → 回 `hf-test-driven-dev` 补 GREEN evidence。
+- 条件 2 不满足但条件 3 明确满足 → 工件与代码事实冲突；回 `hf-specify` / `hf-tasks`（按缺失层级）补 runtime surface / DoD，而不是跳过浏览器证据。
+- 条件 3 不满足 → router 跳过 `hf-browser-testing`，直接把 `hf-test-driven-dev` 的下一推荐节点收敛为下游正常迁移（典型为 `hf-test-review` / `hf-code-review` 二者并行 → `hf-regression-gate`）。
+
+回流（`hf-browser-testing` 完成后）：
+
+- 0 blocking + 0 major observation → 下一推荐节点 = `hf-regression-gate`（按主链原迁移规则继续）。
+- ≥ 1 blocking observation → 下一推荐节点 = `hf-test-driven-dev`（携带 finding，回修后重跑 GREEN）。
+- 0 blocking + ≥ 1 major observation → 下一推荐节点 = observations.md 中 majority `suggested next` 指向的节点（典型为 `hf-test-review` 或 `hf-ui-review`）。
+
+`hf-browser-testing` **不**签发 pass / fail verdict（参见 SKILL.md Hard Gates 与 Common Rationalizations）；上述回流是 router 基于 observation 计数的机械路由，不是 reviewer verdict。
+
+router 的实现职责仅限于：(a) 检查上述 3 个激活条件；(b) 读取 `features/<active>/verification/browser-evidence/<task-id>/observations.md` 的 severity 计数；(c) 把回流结论映射成唯一 canonical next action。**不读 evidence 内容、不参与 severity 改判**。
+
+---
+
+## v0.6 新增（按 ADR-008 D2 / spec FR-003 / FR-015）
+
+### Step-Level Recovery via `tasks.progress.json`
+
+router 在恢复 active task 时，除读 feature `progress.md`（节点级 stage trail）外，还读 `features/<active>/tasks.progress.json`（按 `skills/hf-test-driven-dev/references/tasks-progress-schema.md`）做 task 内 step-level 恢复：
+
+| `current_step` | router 路由 |
+|---|---|
+| `TEST-DESIGN` | `hf-test-driven-dev` 重新进入测试设计步 |
+| `APPROVAL` | `hf-test-driven-dev` 直接到 approval 写工件（auto mode）或等待架构师（standard mode） |
+| `RED-N` | `hf-test-driven-dev` 恢复 RED-N 步（不重做设计） |
+| `GREEN-N` | `hf-test-driven-dev` 恢复 GREEN-N 步 |
+| `REFACTOR-N` | `hf-test-driven-dev` 恢复 REFACTOR-N 步（含步骤 4A architectural health check） |
+| `DONE` | router 选下一 active task；归档 `tasks.progress.<task-id>.json` |
+
+工件不存在或 schema 不合规 → router 视为节点级恢复（按既有逻辑），不阻塞。
+
+### `category_hint` 字段（FR-015 SHOULD）
+
+router 在 handoff JSON 中可选地携带 `category_hint`（取值如 `visual-engineering` / `deep` / `quick` / `ultrabrain`，对齐 OMO category routing 体系）：
+
+```json
+{
+  "next_action_or_recommended_skill": "hf-test-driven-dev",
+  "active_task": "TASK-005",
+  "category_hint": "visual-engineering",
+  "wisdom_summary": "..."
+}
+```
+
+下游 host 不消费时直接忽略；不构成 hard error。SHOULD 失败处理：FR-015 不达标时 hf-completion-gate 不阻塞（按 spec FR-015 Acceptance #3）。
+
+### `wisdom_summary` 注入（FR-003）
+
+router 在选下一 active task 之前，从 `features/<active>/notepads/` 读取**近 N=3 task 的 wisdom 摘要**并注入下游 handoff：
+
+- 摘要内容：近 3 task 的 learnings.md 最新 entry `pattern` 字段 + verification.md 最新 entry `result` 字段 + 任何 issues.md status=open 的 entry
+- 摘要长度上限：1500 token（避免 handoff 过载）
+- 注入位置：handoff JSON 的 `wisdom_summary` 字段
+
+下游节点（hf-test-driven-dev 主要受众）按 wisdom_summary 调整实现策略，避免重复踩 N task 之前已踩过的坑。

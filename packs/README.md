@@ -51,7 +51,7 @@ packs/<pack-id>/
 | `packs/search/` | 信息聚合 / curation family：ai-weekly | 1 | 0 | ✅ 已落盘（PR#28 search hotfix） |
 | `packs/writing/` | 内容创作 family：blog-writing / humanizer-zh / hv-analysis / khazix-writer / magazine-web-ppt + family-level prompts/横纵分析法.md | 5 | 0 | ✅ 已落盘（F008 + magazine-web-ppt） |
 
-合计 4 个 pack × **33 个 skill** × 3 个宿主 = `garage init --hosts all` 物化 99 个 skill 文件 + 6 个 agent 文件（3 agent × 2 hosts；agent 仅装到 claude / opencode；cursor 无 agent surface）。
+合计 4 个 pack × **38 个 skill** × 3 个宿主 = `garage init --hosts all` 物化 114 个 skill 文件 + 6 个 agent 文件（3 agent × 2 hosts；agent 仅装到 claude / opencode；cursor 无 agent surface）。
 
 未来计划（F010+）：
 

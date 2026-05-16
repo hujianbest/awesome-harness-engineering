@@ -21,13 +21,14 @@ fi
 rm -rf .agents/skills
 mkdir -p .agents/skills
 
-# 24 hf-* + using-hf-workflow → packs/coding/skills/
+# 28 hf-* + using-hf-workflow → packs/coding/skills/
 CODING_SKILLS=(
-  hf-bug-patterns hf-code-review hf-completion-gate hf-design hf-design-review
-  hf-discovery-review hf-doc-freshness-gate hf-experiment hf-finalize hf-hotfix
-  hf-increment hf-product-discovery hf-regression-gate hf-specify hf-spec-review
-  hf-tasks hf-tasks-review hf-test-driven-dev hf-test-review hf-traceability-review
-  hf-ui-design hf-ui-review hf-workflow-router using-hf-workflow
+  hf-browser-testing hf-code-review hf-completion-gate hf-context-mesh hf-design
+  hf-design-review hf-discovery-review hf-doc-freshness-gate hf-experiment hf-finalize
+  hf-gap-analyzer hf-hotfix hf-increment hf-product-discovery hf-regression-gate
+  hf-release hf-spec-review hf-specify hf-tasks hf-tasks-review hf-test-driven-dev
+  hf-test-review hf-traceability-review hf-ui-design hf-ui-review hf-ultrawork
+  hf-wisdom-notebook hf-workflow-router using-hf-workflow
 )
 for s in "${CODING_SKILLS[@]}"; do
   if [ -d "packs/coding/skills/$s" ]; then

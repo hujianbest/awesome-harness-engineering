@@ -35,15 +35,6 @@ HF workflow family 的 **runtime authority**。负责根据最新证据决定：
 
 Direct invoke 信号：reviewer 返回 `reroute_via_router=true`、证据冲突需权威路由。
 
-## 和其他 Skill 的区别
-
-| 场景 | 用 hf-workflow-router | 不用 |
-|------|----------------------|------|
-| runtime 恢复编排、profile/mode 判断 | ✅ | |
-| 新会话 family discovery | | → `using-hf-workflow` |
-| 具体节点的作者/评审/实现工作 | | → 对应 leaf skill |
-| 具体节点的评审 | | → 对应 review skill |
-
 ## Workflow
 
 ### 1. 确认是否属于 runtime routing
@@ -148,6 +139,13 @@ advisory only — 用户可改
 
 迁移表：`references/profile-node-and-transition-map.md`
 
+**v0.6 新增**（spec FR-002 / FR-003 / FR-010 / FR-015；详见 `references/profile-node-and-transition-map.md` "v0.6 新增" 段 + `references/workflow-shared-conventions.md` "v0.6 新增 progress.md schema" 段）：
+
+- **step-level recovery**：从 `tasks.progress.json`（按 `hf-test-driven-dev/references/tasks-progress-schema.md`）恢复 task 内 RED-N / GREEN-N / REFACTOR-N 步级进度，不仅节点级
+- **`category_hint` 字段**（SHOULD）：handoff JSON 可选携带 category 提示（visual-engineering / deep / quick / ultrabrain），下游 host 不消费时直接忽略
+- **`wisdom_summary` 注入**：选下一 active task 前从 notepads/ 读近 N=3 task 摘要注入下游 handoff（≤ 1500 token）
+- **progress.md schema 新增 `## Wisdom Delta` 与 `## Fast Lane Decisions` 段**：详见 `references/workflow-shared-conventions.md`
+
 若结论无法映射到唯一节点，重新路由，不自行补脑。
 
 ### 8. 处理 review / gate 恢复
@@ -155,6 +153,7 @@ advisory only — 用户可改
 读取最新结论 → 确认 Profile/Mode → 检查 handoff → 按 router authority 判定。
 
 关键分支：
+- `hf-test-driven-dev` GREEN 后：若当前 task / 代码影响面触碰前端运行面（route、App 根组件、UI provider、API client、Vite proxy/env、表单、浏览器存储等），且工件已声明 runtime surface / DoD → 激活 `hf-browser-testing`；若代码事实触碰运行面但 spec / tasks 未声明 → 回上游补工件，不静默跳过
 - `conclusion=通过` + `needs_human_confirmation=true`：interactive 等待/auto 写 record 再继续
 - completion gate 通过后：有唯一 next-ready task → 更新 Current Active Task 进 `hf-test-driven-dev`；无剩余 task → `hf-finalize`；候选不唯一 → hard stop
 - 用户提出新范围/缺陷 → 重新判断支线
@@ -200,6 +199,15 @@ runtime canonical 写法统一：`hf-workflow-router`、`reroute_via_router`。
 | `references/routing-evidence-guide.md` | 路由证据收集指南 |
 | `references/routing-evidence-examples.md` | 路由判定示例 |
 | `references/ui-surface-activation.md` | UI surface 激活条件、Design Execution Mode、联合 design approval 规则 |
+| `references/recall-integration.md` | F014 Workflow Recall（step 3.5）：advisory 块格式、JSON schema、省略条件 |
+
+## Common Rationalizations
+
+| 借口 | 反驳 / Hard rule |
+|------|-------------------|
+| "用户喊 /build 就跳过 router 直接到 hf-test-driven-dev。" | Workflow stop rule: 命令是 bias 不是 bypass；必须读 on-disk artifacts 决定真实下一步。 |
+| "上游证据不全，我替默认一下走下去。" | Hard Gates (soul.md): router 不替用户做方向 / 取舍；缺 evidence → reroute 回上游或停下抛回。 |
+| "FSM 里没列的边角场景我自己加跳转。" | Workflow stop rule: 路径必须落在 references/profile-node-and-transition-map.md；新增跳转需走 ADR / increment，不在 runtime 拍。 |
 
 ## Verification
 
