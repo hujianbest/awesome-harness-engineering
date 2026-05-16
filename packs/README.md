@@ -47,12 +47,12 @@ packs/<pack-id>/
 | Pack | 用途 | skills | agents | 状态 |
 |---|---|---|---|---|
 | `packs/garage/` | Getting-started 三件套 + F011 三个 production agent | 3 | 3 | ✅ 已落盘（F007 + F008 + F011 0.3.0） |
-| `packs/coding/` | HarnessFlow 工程工作流 family：23 hf-* + using-hf-workflow + family-level docs/templates/principles | 24 | 0 | ✅ 已落盘（v0.3.0 含 hf-doc-freshness-gate） |
+| `packs/coding/` | HarnessFlow 工程工作流 family：28 hf-* + using-hf-workflow（per-skill self-contained） | 29 | 0 | ✅ 已落盘（v0.5.0，reverse-sync harness-flow main / v0.6.0-aligned） |
 | `packs/search/` | 信息聚合 / curation family：ai-weekly | 1 | 0 | ✅ 已落盘（PR#28 search hotfix） |
 | `packs/writing/` | 内容创作 family：blog-writing / humanizer-zh / hv-analysis / khazix-writer / magazine-web-ppt + family-level prompts/横纵分析法.md | 5 | 0 | ✅ 已落盘（F008 + magazine-web-ppt） |
 | `packs/code-audit/` | 存量代码 bug 审查 family：audit-planner / audit-reviewer / audit-verifier / audit-reporter + 双 agent（reviewer 一审 + verifier 独立复核） | 4 | 2 | ✅ Slice A 已落盘（pack 骨架；Slice B/C/D 渲染脚本待跟进） |
 
-合计 5 个 pack × **37 个 skill** × 3 个宿主 = `garage init --hosts all` 物化 111 个 skill 文件 + 10 个 agent 文件（5 agent × 2 hosts；agent 仅装到 claude / opencode；cursor 无 agent surface）。
+合计 5 个 pack × **42 个 skill** × 3 个宿主 = `garage init --hosts all` 物化 126 个 skill 文件 + 10 个 agent 文件（5 agent × 2 hosts；agent 仅装到 claude / opencode；cursor 无 agent surface）。
 
 未来计划（F010+）：
 

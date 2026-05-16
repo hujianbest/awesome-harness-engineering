@@ -1,6 +1,6 @@
 # `packs/coding/` — HarnessFlow 工程工作流 Pack
 
-`packs/coding/` 是 Garage 自带的 **HarnessFlow（HF）工程工作流 family pack**，把 product discovery → hypothesis experiment → spec → design → tasks → TDD 实现 → 多维 review → gate → finalize 的完整工程链路打包成 24 个可分发的 skill。
+`packs/coding/` 是 Garage 自带的 **HarnessFlow（HF）工程工作流 family pack**，把 product discovery → hypothesis experiment → spec → design → tasks → TDD 实现 → 多维 review → gate → finalize 的完整工程链路打包成 **29** 个可分发的 skill（28 个 `hf-*` + `using-hf-workflow`）。
 
 下游用户在自己项目里 `garage init --hosts <list>` 之后，就能在挂载的宿主（Claude Code / OpenCode / Cursor）里加载 hf-specify / hf-design / hf-tasks 等 skill，按 SDD + 闸 TDD 流程驱动 AI Agent 做严肃工程任务。
 
@@ -9,13 +9,13 @@
 | 字段 | 值 |
 |---|---|
 | `pack_id` | `coding` |
-| `version` | `0.4.0` |
+| `version` | `0.5.0` |
 | `schema_version` | `1` |
-| `skills` | 24（23 hf-* + 1 using-hf-workflow） |
+| `skills` | 29（28 hf-* + 1 using-hf-workflow） |
 | `agents` | 0 |
 | 共享资产布局 | per-skill self-contained（每个 skill 自带 `references/`，无 family-level 共享目录） |
 
-## 24 个 Skill 清单
+## 29 个 Skill 清单
 
 ### Public Entry（1）
 
@@ -64,16 +64,31 @@
 | `hf-increment` | 范围 / 验收 / 约束变更支线 |
 | `hf-finalize` | Cycle closeout：状态收尾 + release notes + handoff pack |
 
-### Routing & Meta（2）
+### Verify-stage & release-tier（2）
+
+| Skill | 用途 |
+|---|---|
+| `hf-browser-testing` | verify 阶段条件侧节点：DOM / Console / Network 三层运行时证据（观察不裁决；主链 FSM 不变） |
+| `hf-release` | release-tier 独立 skill：多 feature closeout 后切 vX.Y.Z 版本（不进 router 主链 transition map） |
+
+### Cross-task knowledge & author-side discipline（4）
+
+| Skill | 用途 |
+|---|---|
+| `hf-wisdom-notebook` | 跨 task 知识累积（5-file schema + stdlib validator；与 `hf-completion-gate` §6.2 衔接） |
+| `hf-gap-analyzer` | 作者侧自检（pre-Fagan；6 维 rubric；产出 gap-notes，由作者吸收后再送 review） |
+| `hf-context-mesh` | 分层 `AGENTS.md` / Cursor rules / `CLAUDE.md` 脚手架生成（架构师选客户端；不代写约定） |
+| `hf-ultrawork` | 显式 opt-in fast lane（6 条 escape；不绕过 Fagan / 三 gate） |
+
+### Routing（1）
 
 | Skill | 用途 |
 |---|---|
 | `hf-workflow-router` | Runtime 编排权威：profile / mode / isolation / canonical 节点 / review dispatch / 恢复编排（含 Garage 第一方 step 3.5 "F014 Workflow Recall"） |
-| `hf-bug-patterns` | 把重复出现的 bug 提炼为可复用 pattern catalog |
 
 ## Per-Skill Self-Contained 布局
 
-从 v0.4.0 起，本 pack 跟随上游 `harness-flow v0.1.0` 走 **per-skill self-contained** 路径：每个 skill 自己的 `references/` 子目录持有该 skill 用到的所有模板和共享文档。原 v0.3.0 在 `packs/coding/skills/{docs,templates}/` 与 `packs/coding/principles/` 下的家族级共享资产已经分发到各 skill 内（review-record-template / verification-record-template 等会在多个 skill 的 `references/` 下出现各自副本）。
+从 v0.4.0 起，本 pack 跟随上游 `harness-flow` 走 **per-skill self-contained** 路径：每个 skill 自己的 `references/` 子目录持有该 skill 用到的所有模板和共享文档。原 v0.3.0 在 `packs/coding/skills/{docs,templates}/` 与 `packs/coding/principles/` 下的家族级共享资产已经分发到各 skill 内（review-record-template / verification-record-template 等会在多个 skill 的 `references/` 下出现各自副本）。
 
 下游影响：F007 安装管道**仅复制 `<pack>/skills/<id>/SKILL.md` 单文件**，不递归 `references/`。skill 内对 `references/<file>.md` 的引用属于**文档级提示**（指向用户本地 git checkout 的对应路径），不是装后宿主目录下的本地副本。
 
@@ -86,7 +101,7 @@
 
 ## Garage 第一方增量 (vs upstream)
 
-本 pack 与上游 `harness-flow v0.1.0` 唯一的差异是 `hf-workflow-router`：
+本 pack 与上游 `harness-flow` **默认内容一致**；Garage 侧唯一常驻差异仍是 `hf-workflow-router`：
 
 - `SKILL.md` 在 step 3 与 step 4 之间额外插入 **step 3.5 "查历史路径 (F014 Workflow Recall)"**（advisory only）
 - `references/recall-integration.md`：F014 advisory 块格式 / JSON schema / 何时省略 / 与 authoritative routing 的关系详解
@@ -103,7 +118,7 @@
 cd ~/projects/my-app
 garage init --hosts claude
 # stdout: Installed N skills, M agents into hosts: claude   (N == sum(三 pack.json.skills[]))
-ls .claude/skills/ | grep -c '^hf-'   # → 23
+ls .claude/skills/ | grep -c '^hf-'   # → 28
 ls .claude/skills/using-hf-workflow   # 存在
 cat .claude/skills/hf-specify/SKILL.md | head -5
 # → 含 installed_by: garage, installed_pack: coding
@@ -111,7 +126,7 @@ cat .claude/skills/hf-specify/SKILL.md | head -5
 
 ## 与 Garage 仓库自身的关系
 
-本仓库自身贡献者首次 clone 后，需要先跑一次 dogfood 才能在 IDE 内加载这 24 个 skill：
+本仓库自身贡献者首次 clone 后，需要先跑一次 dogfood 才能在 IDE 内加载这 29 个 skill：
 
 ```bash
 cd /path/to/garage-agent
@@ -126,7 +141,14 @@ garage init --hosts cursor,claude
 
 本 pack 内容 reverse-sync 自 [`hujianbest/harness-flow`](https://github.com/hujianbest/harness-flow) upstream。
 
-### v0.4.0 同步（本次）— 跟随 harness-flow v0.1.0 (pre-release, 2026-04-29)
+### v0.5.0 同步 — 跟随 harness-flow main（对齐上游 v0.6.0 pre-release 能力集，2026-05）
+
+- 全量覆盖 `skills/*` 自 [`hujianbest/harness-flow`](https://github.com/hujianbest/harness-flow) **main** shallow clone（与上游 v0.6.0 README scope note 对齐：router step-level recovery、`hf-browser-testing` / `hf-context-mesh` / `hf-gap-analyzer` / `hf-release` / `hf-ultrawork` / `hf-wisdom-notebook` 等）
+- 上游已移除 `hf-bug-patterns`（PR #31）；本 pack `packs/coding/pack.json` 同步删除该 skill id
+- **NFR-801 守门**：`hf-context-mesh` 与 `hf-finalize` 中不可避免的宿主路径字面量已用 ZWSP 断字以通过 `test_neutrality_exemption_list.py` strict 层（不改变人类阅读语义）
+- 第一方保留：`hf-workflow-router/SKILL.md` step 3.5 + `references/recall-integration.md`（F014 增量）
+
+### v0.4.0 同步 — 跟随 harness-flow v0.1.0 (pre-release, 2026-04-29)
 
 - 24 SKILL.md 全量内容更新（host-neutral 措辞：`AGENTS.md` → "项目级路径约定"；`templates/foo.md` → 各 skill `references/foo.md` 路径）
 - references/ 重组：原 family-level 共享资产分发到各 skill：

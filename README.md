@@ -43,7 +43,7 @@
 - **Local-first by design** — Every session, knowledge entry, and experience record lives in `.garage/` as a readable Markdown / JSON / YAML file. Stop using garage-agent tomorrow and your data still opens in any text editor.
 - **Three first-class hosts** — Claude Code, Cursor, OpenCode. Same pack, same skills, same memory — `garage init --hosts claude,cursor,opencode --yes` materializes everything into each host's native directory.
 - **A complete memory loop** — `garage sync` pushes your top knowledge + recent experience into each host's context surface (`CLAUDE.md`, `.cursor/rules/`, `.opencode/AGENTS.md`); `garage session import --from <host>` pulls host conversation history back for extraction.
-- **Skill packs that travel** — 4 packs ship in v0.1.0 (`garage` / `coding` / `writing` / `search`) with **33 skills + 3 production agents**. Install third-party packs from any git URL; publish your own with `garage pack publish`.
+- **Skill packs that travel** — 5 packs ship in v0.1.0 (`garage` / `coding` / `writing` / `search` / `code-audit`) with **42 skills + 5 agents** (3 onboarding agents in `garage` + 2 code-audit agents). Install third-party packs from any git URL; publish your own with `garage pack publish`.
 - **The system suggests its own next skill** — When the same `(problem_domain, tag)` pattern shows up in 5+ sessions, `garage skill suggest` proposes a SKILL.md draft. `garage skill promote` turns it into a real pack skill.
 - **Workflow recall** — `garage recall workflow --problem-domain cli-design` returns the skill chains that have actually worked for similar past tasks, ranked by frequency.
 - **Privacy-respecting share** — `garage pack publish` runs a sensitive-pattern scan before pushing; `garage knowledge export --anonymize` lets you share what you've learned without leaking secrets.
@@ -54,11 +54,12 @@
 | Pack | Version | Skills | Agents | Purpose |
 |---|---|---|---|---|
 | `packs/garage/` | 0.3.0 | 3 | 3 | Onboarding (`garage-hello` / `find-skills` / `writing-skills`) + production agents (`code-review-agent` / `blog-writing-agent` / `garage-sample-agent`) |
-| `packs/coding/` | 0.4.0 | 24 | 0 | The full HarnessFlow engineering workflow (spec → design → tasks → TDD → review → finalize), reverse-synced from `harness-flow v0.1.0` |
+| `packs/coding/` | 0.5.0 | 29 | 0 | The full HarnessFlow engineering workflow (spec → design → tasks → TDD → review → finalize), reverse-synced from `harness-flow` main (v0.6.0-aligned) |
 | `packs/writing/` | 0.2.0 | 5 | 0 | `blog-writing` / `humanizer-zh` / `hv-analysis` / `khazix-writer` / `magazine-web-ppt` |
 | `packs/search/` | 0.1.0 | 1 | 0 | `ai-weekly` (X/Twitter weekly curation in Chinese) |
+| `packs/code-audit/` | 0.1.0 | 4 | 2 | Existing-code bug audit (`audit-planner` / `audit-reviewer` / `audit-verifier` / `audit-reporter`) + two-stage agents |
 
-`garage init --hosts all` materializes **99 skill files + 6 agent files** (33 skills × 3 hosts; agents to claude + opencode only — Cursor has no agent surface yet).
+`garage init --hosts all` materializes **126 skill files + 10 agent files** (42 skills × 3 hosts; agents to claude + opencode only — Cursor has no agent surface yet).
 
 ## Install
 

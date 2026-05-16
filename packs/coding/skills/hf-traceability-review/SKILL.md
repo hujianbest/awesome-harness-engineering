@@ -5,7 +5,7 @@ description: 适用于 code review 通过后判断追溯完整性、用户显式
 
 # HF Traceability Review
 
-评审证据链追溯完整性：spec→design→tasks→impl→test/verification→status。防止"代码能跑但不再匹配已批准工件"。运行在 `hf-code-review` 之后，决定是否可进入 `hf-regression-gate`。
+评审证据链追溯完整性：spec→design→tasks→impl→test/verification→status。防止"代码能跑但不再匹配已批准工件"。UI surface 还要追溯 `ui-design.md` 的 visual invariants / token / contract 到实现与截图证据，防止只证明"元素存在"。运行在 `hf-code-review` 之后，决定是否可进入 `hf-regression-gate`。
 
 ## Methodology
 
@@ -30,16 +30,6 @@ description: 适用于 code review 通过后判断追溯完整性、用户显式
 
 Direct invoke 信号："追溯评审"、"traceability review"、"帮我检查证据链完整性"。
 
-## 和其他 Skill 的区别
-
-| 场景 | 用 hf-traceability-review | 不用 |
-|------|---------------------------|------|
-| 评审规格→设计→任务→实现的追溯链 | ✅ | |
-| 评审代码质量 | | → `hf-code-review` |
-| 评审测试质量 | | → `hf-test-review` |
-| 评审任务计划质量 | | → `hf-tasks-review` |
-| 阶段不清/证据冲突 | | → `hf-workflow-router` |
-
 ## Hard Gates
 
 - traceability review 通过前不得进入 regression gate
@@ -62,7 +52,7 @@ Direct invoke 信号："追溯评审"、"traceability review"、"帮我检查证
 
 ### 2. 多维评分与挑战式审查
 
-6 维度 0-10 评分：规格-设计追溯、设计-任务追溯、任务-实现追溯、实现-验证追溯、漂移与回写义务、整体证据链闭合度。任一关键维度 < 6 不得通过。
+7 维度 0-10 评分：规格-设计追溯、设计-任务追溯、任务-实现追溯、实现-验证追溯、漂移与回写义务、整体证据链闭合度、UI 设计一致性追溯。任一关键维度 < 6 不得通过。
 
 按 `references/review-checklist.md` 做正式审查。
 
@@ -82,6 +72,7 @@ Direct invoke 信号："追溯评审"、"traceability review"、"帮我检查证
 3.3 **任务-实现链**：实现是否完成任务的完成条件？触碰工件是否一致？
 3.4 **实现-验证链**：验证证据是否锚定到当前实现？RED/GREEN 是否可追溯？
 3.5 **整体闭合**：有没有断链？approved 工件与当前代码是否仍然一致？
+3.6 **UI 设计一致性追溯**：若触碰 UI surface，是否从 `ui-design.md` 的 UI Implementation Contract 追到 tasks、实现文件、测试/浏览器截图证据？是否只证明元素存在而没有证明符合 visual invariants / token / forbidden drift？
 
 ### 4. 形成 verdict
 
@@ -132,6 +123,14 @@ Direct invoke 信号："追溯评审"、"traceability review"、"帮我检查证
 - "代码能跑"等同于"追溯完整"
 - 忽略规格/设计与代码的不一致
 - 返回多个候选下一步
+
+## Common Rationalizations
+
+| 借口 | 反驳 / Hard rule |
+|------|-------------------|
+| "spec → code 链路抽样几条就行。" | Hard Gates: 必须全量映射 spec 段 → design 元素 → task → impl → 测试；抽样 → finding。 |
+| "缺一两条 backward link 不影响交付。" | Workflow stop rule: backward traceability 缺失会让 hf-completion-gate 无法判定 DoD 全覆盖。 |
+| "我自己补缺失的 traceability 条目。" | Hard Gates (soul.md): 评审者只产出 finding，traceability 条目由作者补。 |
 
 ## Verification
 

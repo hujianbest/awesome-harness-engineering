@@ -88,11 +88,11 @@ class TestDogfoodSHA256Invariance:
         )
         baseline = json.loads(BASELINE_JSON.read_text(encoding="utf-8"))
         assert isinstance(baseline, dict)
-        # 37 skills × 2 hosts (cursor + claude) + 5 agents under .claude/agents
-        # (claude only; cursor 无 agent surface) = 79 files. After code-audit Slice A.
+        # 42 skills × 2 hosts (cursor + claude) + 5 agents under .claude/agents
+        # (claude only; cursor 无 agent surface) = 89 files
         assert len(baseline) >= 70, (
             f"baseline 含 {len(baseline)} entries, 期望 ≥ 70 "
-            "(37 skill × 2 host + 5 agents = 79)"
+            "(42 skill × 2 host + 5 agents = 89)"
         )
 
     def test_dogfood_skill_md_sha256_match(
