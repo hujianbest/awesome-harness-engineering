@@ -49,11 +49,12 @@ from render_html import (
     VALID_SEVERITIES,
     VALID_VERIFIER_STATUSES,
     ReportError,
-    _validate_findings,
     _collect_rejected,
+    _validate_findings,
+    derive_allowed_categories,
 )
 
-PACK_VERSION = "0.1.0"
+PACK_VERSION = "0.2.0"
 
 try:
     from openpyxl import Workbook
@@ -155,7 +156,8 @@ def render_workbook(
     if not isinstance(confirmed, list):
         raise ReportError(f"{confirmed_path} must contain a JSON array of findings")
 
-    _validate_findings(confirmed)
+    allowed_categories = derive_allowed_categories(plan)
+    _validate_findings(confirmed, allowed_categories=allowed_categories)
     rejected_records = (
         _collect_rejected(findings_dir) if findings_dir and findings_dir.is_dir() else []
     )
@@ -392,11 +394,34 @@ def _build_runmeta_sheet(
     ws.cell(row=1, column=2).fill = header_fill
 
     by_severity = Counter(f["severity"] for f in confirmed)
-    rows = [
+    profile = plan.get("profile") if isinstance(plan.get("profile"), dict) else {}
+    checklist = (
+        plan.get("review_checklist")
+        if isinstance(plan.get("review_checklist"), dict)
+        else {}
+    )
+
+    def _list_str(val: Any) -> str:
+        return ", ".join(str(v) for v in val) if isinstance(val, list) else ""
+
+    rows: list[tuple[str, Any]] = [
         ("run_id", str(plan.get("run_id") or "")),
         ("target", str(plan.get("target") or "")),
         ("generated_at", dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")),
         ("pack_version", PACK_VERSION),
+        ("profile.languages", _list_str(profile.get("languages"))),
+        ("profile.architectures", _list_str(profile.get("architectures"))),
+        ("profile.frameworks", _list_str(profile.get("frameworks"))),
+        ("profile.risk_focus", _list_str(profile.get("risk_focus"))),
+        ("profile.user_confirmed", str(profile.get("user_confirmed", ""))),
+        ("review_checklist.preset", str(checklist.get("preset") or "")),
+        (
+            "review_checklist.category_count",
+            len(checklist.get("categories", []))
+            if isinstance(checklist.get("categories"), list)
+            else 0,
+        ),
+        ("review_checklist.user_confirmed", str(checklist.get("user_confirmed", ""))),
         ("total_findings", len(confirmed)),
         ("modules_audited", len(plan.get("modules", []))),
         ("rejected_count", len(rejected)),

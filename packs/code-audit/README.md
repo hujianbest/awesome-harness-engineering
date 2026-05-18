@@ -7,10 +7,18 @@
 | 字段 | 值 |
 |---|---|
 | `pack_id` | `code-audit` |
-| `version` | `0.1.0` |
+| `version` | `0.2.0` |
 | `schema_version` | `1` |
 | `skills` | 4 |
 | `agents` | 2 |
+
+### v0.2.0 新增
+
+- **项目 profile 自动识别**：audit-planner Step 0 检测语言 + 架构 + frameworks（嵌入式 / SOA / web / SPA / CLI / 数据 pipeline / generic）
+- **针对性 review checklist + 用户确认**：Step 0.5 基于 profile 选 preset，回显给用户确认/调整后再切模块
+- **场景预设**：`c-cpp-embedded-soa` / `c-cpp-embedded` / `python-web-service` / `frontend-spa` / `generic`（详见 `skills/audit-reviewer/references/scenario-presets/`），可自定义扩展
+- **finding.category 由 checklist 动态决定**：不再是固定 11 类；renderer 软验证 + report header 展示 profile/checklist
+- **完全向后兼容**：0.1.0 时代的 plan.json（无 profile/review_checklist 字段）按 base 11 通用 taxonomy 处理
 
 ## 与其它 review 相关 skill 的边界
 
@@ -26,12 +34,14 @@
 
 ```
 用户请求审查 → [code-audit-reviewer-agent]
-                  1. audit-planner   切模块 → plan.json
-                  2. audit-reviewer  逐模块出 finding 草稿（draft）
+                  1. audit-planner Step 0   识别 profile（语言 + 架构）
+                  2. audit-planner Step 0.5 推荐 review_checklist（preset），与用户握手确认
+                  3. audit-planner Step 1-4 切模块 → plan.json（含 profile + review_checklist + modules）
+                  4. audit-reviewer  逐模块出 finding 草稿（category ∈ review_checklist）
                   ↓
               [code-audit-verifier-agent]   (独立上下文，看不到一审推理过程)
-                  3. audit-verifier  对每条 finding 独立复核 → confirmed / rejected / upgrade / downgrade / needs_more_evidence
-                  4. audit-reporter  汇总并渲染 HTML（+ 可选 Excel）
+                  5. audit-verifier  对每条 finding 独立复核 → confirmed / rejected / upgrade / downgrade / needs_more_evidence
+                  6. audit-reporter  汇总并渲染 HTML（含 profile + checklist 头部）+ 可选 Excel
                   ↓
               用户拿到 reports/report.html
 ```
@@ -82,7 +92,11 @@
 
 完整 JSON schema 见 `skills/audit-reviewer/references/finding-schema.md`。
 
-## Bug 分类（11 类）
+## Bug 分类（scenario-aware）
+
+v0.2.0 起 finding 的合法 category 集合**由 plan.json `review_checklist.categories[]` 决定**，而非固定 11 类。`audit-planner` 在 Step 0/0.5 根据项目 profile 推荐一份 preset，与用户握手确认后落 plan.json。
+
+### Base 11 通用 taxonomy（preset = `generic`，也是无 checklist 时的回退）
 
 | category | 说明 |
 |---|---|
@@ -98,7 +112,21 @@
 | `contract-violation` | 违反项目内既有接口契约 / schema |
 | `i18n-or-encoding` | 编码、locale 处理错误 |
 
-详见 `skills/audit-reviewer/references/bug-taxonomy.md`。
+### 场景 preset（针对性更强的清单）
+
+| preset id | 适用项目 | 关键 category（节选） |
+|---|---|---|
+| `c-cpp-embedded-soa` | C/C++ 嵌入式 + SOA（AUTOSAR / SOME/IP / DDS / Zenoh） | `memory-safety` / `undefined-behavior` / `isr-safety` / `real-time` / `ipc-contract` / `serialization` / `hardware-resource` / `portability` / `build-and-config` / `coding-standard` |
+| `c-cpp-embedded` | C/C++ 嵌入式（单设备 / 非服务化） | 同上，去除 `ipc-contract` / `serialization` |
+| `python-web-service` | Python web 服务（FastAPI / Flask / Django） | `input-validation` / `auth-authz` / `sql-injection` / `secrets-and-config` / `async-concurrency` / `database` / `dependency-vuln` / `dos` / `observability` |
+| `frontend-spa` | React / Vue / Svelte / Angular 等 SPA | `xss` / `state-management` / `effect-correctness` / `route-and-auth` / `bundle-and-build` / `accessibility` / `network-api` / `secret-leak` |
+| `generic` | 未命中具体场景 | 同 base 11 |
+
+详细 preset 文件：`skills/audit-reviewer/references/scenario-presets/<preset-id>.md`，含每类 description / `severity_default` / examples / 二选一仲裁规则。Base 11 详见 `skills/audit-reviewer/references/bug-taxonomy.md`。
+
+### 自定义 preset
+
+复制 `skills/audit-reviewer/references/scenario-presets/_template.md` 改名 → 在 `bug-taxonomy.md §2` 表登记 → 可选在 `audit-planner/references/project-profile-rubric.md` 加命中规则。也可在 Step 0.5 通过 `add <id>:<description>` 临时给一次性 run 加 category。
 
 ## 运行数据落盘位置
 
@@ -242,28 +270,53 @@ uv run python packs/code-audit/skills/audit-reporter/scripts/render_xlsx.py \
 └── report.xlsx    # 4 sheets：Findings / Summary / RunMeta / Rejected
 ```
 
-### 端到端示例（OpenCode 场景）
+### 端到端示例（OpenCode 场景，C/C++ 嵌入式 SOA 项目）
 
-下面是一个完整流程的 user-side 时间线，假设你刚 clone 了一个老项目想做全量 bug 审查：
+下面是一个完整流程的 user-side 时间线，假设你刚 clone 了一个 AUTOSAR + SOME/IP + FreeRTOS 的 C/C++ 项目想做全量 bug 审查：
 
 ```text
-$ cd ~/projects/legacy-app
+$ cd ~/projects/vehicle-domain-controller
 $ garage init --hosts opencode
-Initialized garage-agent in /Users/me/projects/legacy-app/.garage
-Installed 37 skills, 5 agents into hosts: opencode
+Initialized garage-agent in /Users/me/projects/vehicle-domain-controller/.garage
+Installed 42 skills, 5 agents into hosts: opencode
 
 # === OpenCode 会话 1（一审） ===
 You: 请用 code-audit-reviewer-agent 审查 src/ 模块的 bug
-Agent: [audit-planner] 切出 7 个模块清单，写到
+Agent: [audit-planner Step 0] 识别项目 profile...
+
+       === Detected Project Profile ===
+       languages:      c, cpp
+       architectures:  embedded, soa
+       frameworks:     FreeRTOS, AUTOSAR-Classic, SOME/IP
+       risk_focus:     memory-safety, isr-safety, ipc-contract, real-time
+       signals:
+         - src/board/stm32f4xx_hal_conf.h
+         - src/rtos/FreeRTOSConfig.h
+         - ipc/proto/*.arxml (12 service contracts)
+         - linker script bsp/STM32F407.ld
+
+       === Suggested Review Checklist (preset: c-cpp-embedded-soa) ===
+        1. memory-safety        — UAF / double-free / 缓冲区溢出 / OOB / dangling pointer
+        2. undefined-behavior   — signed overflow / strict aliasing / 对齐 / NULL deref
+        3. isr-safety           — ISR 内阻塞 / 非 reentrant / volatile / 优先级反转
+        ... (共 15 类)
+
+       请确认 (ok / del / add / swap-preset / edit)
+You: ok
+
+Agent: [audit-planner Step 1-4] 切出 7 个模块清单，写到
        .garage/code-audit/runs/audit-2026-05-16-0935/plan.json
-Agent: [audit-reviewer] 逐模块扫描...
-       module=runtime 完成，写出 12 条 finding 草稿
-       module=knowledge 完成，写出 8 条 finding 草稿
+       (含 profile + review_checklist + modules)
+
+Agent: [audit-reviewer] 逐模块扫描 (checklist preset: c-cpp-embedded-soa)...
+       module=rtos     完成，12 条 finding（isr-safety=4, memory-safety=3, ...）
+       module=ipc      完成，9 条 finding（ipc-contract=5, serialization=2, ...）
        ...
 Agent: 一审完成。run_id: audit-2026-05-16-0935
        - 模块数: 7
        - finding 草稿数: 47
-       - by_severity: critical=2 high=8 medium=22 low=12 info=3
+       - by_severity: critical=4 high=18 medium=15 low=8 info=2
+       - by_category: isr-safety=10 memory-safety=8 ipc-contract=7 ...
 
        下一步请在【新会话】启动 code-audit-verifier-agent 做独立复核：
        "请用 code-audit-verifier-agent 复核 run audit-2026-05-16-0935，

@@ -48,7 +48,7 @@ Garage 自带的可分发 skills + agents 沉淀在仓库 `packs/<pack-id>/` 下
 | `packs/coding/` | `0.5.0` | 29 | 0 | HarnessFlow 工程工作流 family（28 hf-* + using-hf-workflow；per-skill self-contained；reverse-sync 自 hujianbest/harness-flow main，对齐上游 v0.6.0 能力集；garage-side 第一方增量 = hf-workflow-router step 3.5 F014 Workflow Recall）|
 | `packs/search/` | `0.1.0` | 1 | 0 | 信息聚合 / curation family：ai-weekly（X/Twitter 周报，Priority 1/2/3 中文报告）|
 | `packs/writing/` | `0.2.0` | 5 | 0 | 内容创作 family：blog-writing / humanizer-zh / hv-analysis / khazix-writer / magazine-web-ppt + family-level prompts/横纵分析法.md |
-| `packs/code-audit/` | `0.1.0` | 4 | 2 | 存量代码 bug 审查 family：audit-planner / audit-reviewer / audit-verifier / audit-reporter + 双 agent（code-audit-reviewer-agent 一审 + code-audit-verifier-agent 独立复核）；按模块切分、双 agent 串行确认、输出 HTML（必需）+ Excel（可选 Slice C）报告；Slice A 落 pack 骨架，Slice B/C/D 落渲染脚本与端到端 dogfood |
+| `packs/code-audit/` | `0.2.0` | 4 | 2 | 存量代码 bug 审查 family：audit-planner / audit-reviewer / audit-verifier / audit-reporter + 双 agent；按模块切分、双 agent 串行确认、输出 HTML（必需）+ Excel（可选）报告；**v0.2.0：audit-planner 先识别项目语言+架构（C/C++ embedded SOA / Python web / frontend SPA / generic 等）→ 推荐针对性 review_checklist 与用户握手确认 → 切模块；finding.category 由 plan.json review_checklist 动态决定（不再固定 11 类）；report header 展示 profile + checklist；旧 plan.json 缺字段时回退 base 11 完全兼容** |
 
 合计 5 个 pack × 42 个 skill × 3 个宿主 = `garage init --hosts all` 物化 126 个 skill 文件 + 10 个 agent 文件（5 agent × 2 hosts；agent 仅装到 claude / opencode）。
 

@@ -323,7 +323,7 @@ class TestRunMetaSheet:
                 for r in range(2, ws.max_row + 1)}
         assert keys["run_id"] == "audit-test-001"
         assert keys["target"] == "src/"
-        assert keys["pack_version"] == "0.1.0"
+        assert keys["pack_version"] == "0.2.0"
         assert keys["total_findings"] == 2
         assert keys["modules_audited"] == 2  # from plan
         assert keys["by_severity.critical"] == 1

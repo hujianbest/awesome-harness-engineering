@@ -45,11 +45,15 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-PACK_VERSION = "0.1.0"
+PACK_VERSION = "0.2.0"
 
 VALID_SEVERITIES = ("critical", "high", "medium", "low", "info")
 VALID_CONFIDENCES = ("high", "medium", "low")
-VALID_CATEGORIES = (
+# Base 11 universal taxonomy — historical default for plan.json without a
+# review_checklist (pre-0.2.0 runs). For 0.2.0+ runs, the allowed category set
+# is sourced from plan["review_checklist"]["categories"][*]["id"] (scenario
+# preset: c-cpp-embedded-soa, python-web-service, frontend-spa, generic, etc.).
+BASE_11_CATEGORIES = (
     "correctness",
     "error-handling",
     "concurrency",
@@ -62,6 +66,11 @@ VALID_CATEGORIES = (
     "contract-violation",
     "i18n-or-encoding",
 )
+# Backwards-compat alias kept for callers that imported the old name (e.g.
+# render_xlsx + older test code). When a plan.json with review_checklist is
+# loaded the renderer derives a per-run allowed-categories tuple instead of
+# reaching for this constant.
+VALID_CATEGORIES = BASE_11_CATEGORIES
 VALID_VERIFIER_STATUSES = (
     "confirmed",
     "rejected",
@@ -69,6 +78,28 @@ VALID_VERIFIER_STATUSES = (
     "downgrade",
     "needs_more_evidence",
 )
+
+
+def derive_allowed_categories(plan: dict[str, Any]) -> tuple[str, ...]:
+    """Pick the allowed-category enum for this run.
+
+    If ``plan["review_checklist"]["categories"]`` is present and non-empty,
+    use its ``id`` values (scenario preset path); otherwise fall back to the
+    historical base 11 universal taxonomy (pre-0.2.0 / generic preset path).
+    """
+    rc = plan.get("review_checklist") if isinstance(plan, dict) else None
+    if isinstance(rc, dict):
+        cats = rc.get("categories")
+        if isinstance(cats, list) and cats:
+            ids: list[str] = []
+            for entry in cats:
+                if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+                    cid = entry["id"].strip()
+                    if cid and cid not in ids:
+                        ids.append(cid)
+            if ids:
+                return tuple(ids)
+    return BASE_11_CATEGORIES
 
 
 class ReportError(ValueError):
@@ -116,7 +147,8 @@ def render_report(
     if not isinstance(confirmed, list):
         raise ReportError(f"{confirmed_path} must contain a JSON array of findings")
 
-    _validate_findings(confirmed)
+    allowed_categories = derive_allowed_categories(plan)
+    _validate_findings(confirmed, allowed_categories=allowed_categories)
     rejected_records = _collect_rejected(findings_dir) if findings_dir and findings_dir.is_dir() else []
 
     if sha_resolver is None:
@@ -134,6 +166,7 @@ def render_report(
         css=css,
         js=js,
         sha_resolver=sha_resolver,
+        allowed_categories=allowed_categories,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,17 +249,28 @@ REQUIRED_REVIEWER_FIELDS = ("agent", "ts")
 REQUIRED_VERIFIER_FIELDS = ("status", "reason", "evidence_check", "agent", "ts")
 
 
-def _validate_findings(findings: list[Any]) -> None:
+def _validate_findings(
+    findings: list[Any],
+    *,
+    allowed_categories: tuple[str, ...] | None = None,
+) -> None:
+    """Validate finding records against required-field + enum contracts.
+
+    ``allowed_categories`` lets the caller scope category validation to the
+    current run's review_checklist (scenario preset path). When omitted, falls
+    back to the base 11 universal taxonomy — same behaviour as pre-0.2.0.
+    """
+    cats = tuple(allowed_categories) if allowed_categories else BASE_11_CATEGORIES
     for i, f in enumerate(findings):
         if not isinstance(f, dict):
             raise ReportError(f"finding #{i} must be an object, got {type(f).__name__}")
         for k in REQUIRED_FINDING_FIELDS:
             if k not in f:
                 raise ReportError(f"finding #{i} ({f.get('id', '<no-id>')}) missing field '{k}'")
-        if f["category"] not in VALID_CATEGORIES:
+        if f["category"] not in cats:
             raise ReportError(
                 f"finding {f['id']} has invalid category {f['category']!r}; "
-                f"must be one of {VALID_CATEGORIES}"
+                f"must be one of {cats}"
             )
         if f["severity"] not in VALID_SEVERITIES:
             raise ReportError(
@@ -313,10 +357,12 @@ def _build_html(
     css: str,
     js: str,
     sha_resolver: Sha256Resolver,
+    allowed_categories: tuple[str, ...] | None = None,
 ) -> str:
     run_id = str(plan.get("run_id") or "<unknown>")
     target = str(plan.get("target") or "<unknown>")
     generated_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    cats = tuple(allowed_categories) if allowed_categories else BASE_11_CATEGORIES
 
     by_severity = Counter(f["severity"] for f in confirmed)
     by_category = Counter(f["category"] for f in confirmed)
@@ -351,6 +397,8 @@ def _build_html(
         )
     parts.append("  </dl>\n</header>\n")
 
+    parts.append(_render_profile_section(plan))
+
     parts.append("<section class=\"summary\">\n")
     parts.append("  <div class=\"stat-row\">\n")
     parts.append(f"    <div class=\"stat-card stat-total\">{total} total</div>\n")
@@ -367,7 +415,7 @@ def _build_html(
     parts.append("<section class=\"filters\">\n")
     parts.append(_render_filter_fieldset("Severity", "severity", VALID_SEVERITIES, by_severity))
     parts.append(_render_filter_fieldset("Confidence", "confidence", VALID_CONFIDENCES, by_confidence))
-    parts.append(_render_filter_fieldset("Category", "category", VALID_CATEGORIES, by_category))
+    parts.append(_render_filter_fieldset("Category", "category", cats, by_category))
     modules_seen = sorted(by_module.keys())
     parts.append(_render_filter_fieldset("Module", "module", tuple(modules_seen), by_module))
     parts.append(
@@ -468,6 +516,106 @@ def _render_donut(by_severity: Counter[str]) -> str:
     )
     rows.append("</svg>\n")
     return "\n".join(rows)
+
+
+def _render_profile_section(plan: dict[str, Any]) -> str:
+    """Render a project-profile + review-checklist banner from plan.json.
+
+    Renders nothing (empty string) when the plan has neither field — keeps
+    pre-0.2.0 / generic runs visually unchanged.
+    """
+    profile = plan.get("profile") if isinstance(plan.get("profile"), dict) else {}
+    checklist = (
+        plan.get("review_checklist")
+        if isinstance(plan.get("review_checklist"), dict)
+        else {}
+    )
+    if not profile and not checklist:
+        return ""
+
+    parts: list[str] = ['<section class="profile-section">\n']
+    parts.append('  <h2>Project Profile &amp; Review Checklist</h2>\n')
+
+    if profile:
+        parts.append('  <div class="profile-grid">\n')
+
+        def _list_dd(key: str, label: str) -> None:
+            val = profile.get(key)
+            if isinstance(val, list) and val:
+                items = ", ".join(html.escape(str(v)) for v in val)
+                parts.append(
+                    f'    <div><dt>{html.escape(label)}</dt>'
+                    f"<dd>{items}</dd></div>\n"
+                )
+
+        _list_dd("languages", "Languages")
+        _list_dd("architectures", "Architectures")
+        _list_dd("frameworks", "Frameworks")
+        _list_dd("build_systems", "Build systems")
+        _list_dd("risk_focus", "Risk focus")
+        confirmed_flag = profile.get("user_confirmed")
+        if confirmed_flag is not None:
+            label = (
+                "User-confirmed"
+                if confirmed_flag
+                else "Auto-detected (not user-confirmed)"
+            )
+            css_class = "profile-confirmed" if confirmed_flag else "profile-unconfirmed"
+            parts.append(
+                f'    <div><dt>Profile status</dt>'
+                f'<dd class="{css_class}">{html.escape(label)}</dd></div>\n'
+            )
+        parts.append("  </div>\n")
+
+        signals = profile.get("detected_signals")
+        if isinstance(signals, list) and signals:
+            parts.append('  <details class="profile-signals"><summary>Detected signals</summary>\n')
+            parts.append("  <ul>\n")
+            for sig in signals:
+                parts.append(f"    <li>{html.escape(str(sig))}</li>\n")
+            parts.append("  </ul>\n  </details>\n")
+
+    if checklist:
+        preset = checklist.get("preset") or "<unspecified>"
+        cats = checklist.get("categories") if isinstance(checklist.get("categories"), list) else []
+        confirmed_flag = checklist.get("user_confirmed")
+        confirm_label = (
+            "User-confirmed"
+            if confirmed_flag
+            else "Auto-selected (not user-confirmed)"
+        )
+        confirm_class = (
+            "profile-confirmed" if confirmed_flag else "profile-unconfirmed"
+        )
+        parts.append(
+            '  <div class="checklist-header">\n'
+            f'    <span class="checklist-preset">Preset: <code>{html.escape(str(preset))}</code></span>\n'
+            f'    <span class="checklist-count">{len(cats)} categories</span>\n'
+            f'    <span class="checklist-status {confirm_class}">{html.escape(confirm_label)}</span>\n'
+            "  </div>\n"
+        )
+        if cats:
+            parts.append('  <details class="checklist-detail"><summary>Review checklist (categories)</summary>\n')
+            parts.append('  <table class="checklist-table">\n')
+            parts.append(
+                "    <thead><tr><th>id</th><th>description</th>"
+                "<th>severity_default</th></tr></thead>\n"
+            )
+            parts.append("    <tbody>\n")
+            for entry in cats:
+                if not isinstance(entry, dict):
+                    continue
+                cid = html.escape(str(entry.get("id") or ""))
+                desc = html.escape(str(entry.get("description") or ""))
+                sev = html.escape(str(entry.get("severity_default") or "medium"))
+                parts.append(
+                    f"      <tr><td><code>{cid}</code></td>"
+                    f"<td>{desc}</td><td>{sev}</td></tr>\n"
+                )
+            parts.append("    </tbody>\n  </table>\n  </details>\n")
+
+    parts.append("</section>\n")
+    return "".join(parts)
 
 
 def _render_module_table(
