@@ -25,6 +25,35 @@
     </dl>
   </header>
 
+  {# v0.2.0+ only — omitted entirely if plan.json has neither profile nor review_checklist #}
+  <section class="profile-section">
+    <h2>Project Profile &amp; Review Checklist</h2>
+    <div class="profile-grid">
+      <div><dt>Languages</dt><dd>{{ profile.languages | join: ", " }}</dd></div>
+      <div><dt>Architectures</dt><dd>{{ profile.architectures | join: ", " }}</dd></div>
+      <div><dt>Frameworks</dt><dd>{{ profile.frameworks | join: ", " }}</dd></div>
+      <div><dt>Risk focus</dt><dd>{{ profile.risk_focus | join: ", " }}</dd></div>
+      <div><dt>Profile status</dt><dd class="profile-confirmed | profile-unconfirmed">User-confirmed | Auto-detected</dd></div>
+    </div>
+    <details class="profile-signals"><summary>Detected signals</summary>
+      <ul>{% for s in profile.detected_signals %}<li>{{ s }}</li>{% endfor %}</ul>
+    </details>
+
+    <div class="checklist-header">
+      <span class="checklist-preset">Preset: <code>{{ review_checklist.preset }}</code></span>
+      <span class="checklist-count">{{ review_checklist.categories | length }} categories</span>
+      <span class="checklist-status profile-confirmed | profile-unconfirmed">User-confirmed | Auto-selected</span>
+    </div>
+    <details class="checklist-detail"><summary>Review checklist (categories)</summary>
+      <table class="checklist-table">
+        <thead><tr><th>id</th><th>description</th><th>severity_default</th></tr></thead>
+        <tbody>{% for c in review_checklist.categories %}
+          <tr><td><code>{{ c.id }}</code></td><td>{{ c.description }}</td><td>{{ c.severity_default }}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+    </details>
+  </section>
+
   <section class="summary">
     <div class="stat-card stat-total">{{ total }} findings</div>
     <div class="stat-card stat-critical">{{ critical }} critical</div>
@@ -185,7 +214,15 @@ key-value 表：
 | run_id | audit-2026-05-16-0435 |
 | target | src/garage_os/ |
 | generated_at | 2026-05-16T05:00:00Z |
-| pack_version | 0.1.0 |
+| pack_version | 0.2.0 |
+| profile.languages | c, cpp |
+| profile.architectures | embedded, soa |
+| profile.frameworks | FreeRTOS, AUTOSAR-Classic, SOME/IP |
+| profile.risk_focus | memory-safety, isr-safety, ipc-contract, real-time |
+| profile.user_confirmed | True |
+| review_checklist.preset | c-cpp-embedded-soa |
+| review_checklist.category_count | 15 |
+| review_checklist.user_confirmed | True |
 | total_findings | 47 |
 | modules_audited | 7 |
 | rejected_count | 12 |

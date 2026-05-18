@@ -51,7 +51,7 @@
 | `line_end` | ✅ | `int` | reviewer | 1-indexed，闭区间，`>= line_start` |
 | `file_sha256` | ✅ | `str` | reviewer | 64 字符 hex，审查时文件内容的 sha256 |
 | `title` | ✅ | `str` | reviewer | 一句话标题（≤ 80 字符） |
-| `category` | ✅ | `str` enum | reviewer | 11 类之一，见 `bug-taxonomy.md` |
+| `category` | ✅ | `str` enum | reviewer | 必须 ∈ `plan.json` 的 `review_checklist.categories[].id`（按 scenario preset 而不是固定 11 类）；plan 无 review_checklist 时回退到 `bug-taxonomy.md §1` 的 base 11 |
 | `severity` | ✅ | `str` enum | reviewer | `critical` / `high` / `medium` / `low` / `info` |
 | `confidence` | ✅ | `str` enum | reviewer | `high` / `medium` / `low` |
 | `description` | ✅ | `str` | reviewer | 自然语言说明，2-5 句，含触发场景 + 后果 |
@@ -93,4 +93,5 @@
 1. `verifier` 在 reviewer 阶段必须以 `{}` 占位（不得缺失或 `null`），保证下游 schema 验证可断言"verifier 字段存在"
 2. `id` 在一个 `run_id` 内全局唯一
 3. `line_start <= line_end`，两者均 1-indexed
-4. `category` / `severity` / `confidence` / `verifier.status` 必须是 enum 值之一，写错的应被 `audit-reporter` 在渲染前拒绝并报错（防止报告里出现拼写错误的 severity）
+4. `severity` / `confidence` / `verifier.status` 必须是固定 enum 值之一（`severity`：critical/high/medium/low/info；`confidence`：high/medium/low；`verifier.status`：confirmed/rejected/upgrade/downgrade/needs_more_evidence），写错的应被 `audit-reporter` 在渲染前拒绝并报错（防止报告里出现拼写错误的字段）
+5. `category` 是**动态 enum**：合法值集合来自当前 run 的 `plan.json` `review_checklist.categories[].id`（无 review_checklist 时回退到 base 11，见 `bug-taxonomy.md §1`）。`audit-reporter` 在渲染前会拒绝清单外的 category。
