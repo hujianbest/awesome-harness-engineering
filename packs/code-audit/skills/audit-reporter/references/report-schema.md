@@ -214,7 +214,7 @@ key-value 表：
 | run_id | audit-2026-05-16-0435 |
 | target | src/garage_os/ |
 | generated_at | 2026-05-16T05:00:00Z |
-| pack_version | 0.2.0 |
+| pack_version | 0.3.0 |
 | profile.languages | c, cpp |
 | profile.architectures | embedded, soa |
 | profile.frameworks | FreeRTOS, AUTOSAR-Classic, SOME/IP |

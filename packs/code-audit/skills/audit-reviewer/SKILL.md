@@ -26,6 +26,7 @@ description: Use when scanning an existing-code module for bugs and emitting fin
 - **只审不改**：reviewer 不写源码、不重命名、不调整结构
 - **每条 finding 必须有证据**：缺 `evidence.code_snippet` 或缺 `evidence.reasoning` 的 finding 不得落盘
 - **一次只审一个模块**：跨模块的发现写为 `related_files`，主 finding 仍归属当前模块
+- **每次调用只审一个模块 + 在新会话独立上下文执行**（0.3.0 起强约束）：reviewer 单次 invocation 只允许处理 plan.json 中**一个** `status=pending` 的模块；处理完该模块即返回，不在同一会话内继续抓下一个模块。完整契约见 `references/per-module-context-protocol.md`，违反此约束的"批量串跑"会触发上下文压缩、显著降低后续模块的命中率与判 severity 准确度
 - **行号必须 1-indexed + 闭区间**：`line_start <= line_end`，超出文件总行数为非法
 - **不输出 prose review**：不写"这个模块整体来说……"之类的总体评价；只出结构化 finding
 - **category 严格来自 plan.json `review_checklist`**：finding `category` 必须 ∈ `review_checklist.categories[].id`；不在清单内的疑似问题按 `bug-taxonomy.md §4.3` 处理（改写到最接近 category 并在 reasoning 注明；或暂存到模块返回摘要的 `skipped_findings` 字段建议用户更新 checklist 重审），**禁止**自己造一个清单外的 category 写盘
@@ -36,12 +37,15 @@ description: Use when scanning an existing-code module for bugs and emitting fin
 ### 1. 读取上下文
 
 - 读 `.garage/code-audit/runs/<run_id>/plan.json` 找到目标模块（状态应为 `pending`）
+  - 单次 invocation **只挑一个**模块——如果调用方没指定模块名，按 `priority desc → path asc` 取第一个 `status=pending` 的模块
+  - **绝不**在同一调用里遍历多个模块（违反 Hard Gate "每次调用只审一个模块"）
 - 把模块 `status` 改为 `in-review`（原子写）
 - **加载 review_checklist**：从 plan.json 取 `review_checklist.categories[]`，构造 `{id, description, severity_default, examples}` 索引；作为本次扫描的唯一合法 category 集合
   - 若 `review_checklist.user_confirmed=false`：在返回摘要顶部加一行警告 `⚠ review_checklist not user-confirmed; findings will be re-validated on next run`
   - 若 `review_checklist` 字段缺失：回退 base 11 + 警告
 - **加载 profile**：读 `profile.risk_focus[]`；命中本类的 finding 起判 severity 提升一档（如本来 medium 提到 high），不超过该 category 的 `severity_default`
 - 读项目根 `AGENTS.md` 获取项目级编码约定（如有）
+- **不读其它模块的 `findings/*.json`**：保持本会话上下文只跟当前模块相关（per-module-context-protocol §1）
 
 ### 2. 逐文件扫描
 
@@ -76,7 +80,9 @@ description: Use when scanning an existing-code module for bugs and emitting fin
 - `reviewer.agent` 写当前 agent id，`reviewer.ts` 写当前 UTC ISO 8601
 - 完成后把 plan.json 中该模块的 `status` 改为 `done`
 
-### 5. 返回结构化摘要
+### 5. 返回结构化摘要 + 移交
+
+返回摘要后**立即结束本次调用**，把控制权交还 orchestrator / 用户；**不**继续抓下一个模块。
 
 ```
 run_id: <run_id>
@@ -86,17 +92,22 @@ findings_path: .garage/code-audit/runs/<run_id>/findings/<module>.json
 finding_count: <int>
 by_severity: {critical: N, high: N, medium: N, low: N, info: N}
 by_category: {<checklist-id-1>: N, <checklist-id-2>: N, ...}   # 仅出现在 checklist 内的 id
+remaining_pending_modules: [<name1>, <name2>, ...]             # plan.json 中仍 pending 的模块
 skipped_findings:                        # 可选；checklist 装不下的疑似问题简述
   - {hint: "...", reason: "no matching category in checklist", suggested_category: "..."}
-next_action: audit-reviewer (next pending module) or audit-verifier (all done)
+next_action:
+  - 若 remaining_pending_modules 非空: "open a NEW SESSION and run: code-audit-reviewer-agent --resume <run_id>"
+  - 若 remaining_pending_modules 为空: "open a NEW SESSION and run: code-audit-verifier-agent --run-id <run_id>"
 ```
+
+> Reviewer 自己**不**在本会话内继续下个模块；orchestrator agent 收到摘要后也只显示移交消息给用户。每模块一对话，是这个 pack 的核心独立性约束。
 
 ## Output Contract
 
 - 写盘：`findings/<module>.json`（数组，按 line_start 升序）+ 修改 `plan.json` 的 module status
 - 不写：`verifications/`、`confirmed.json`、`reports/`（属下游 skill）
 - 不动：源码、项目其他文件
-- 唯一下一步：若 plan.json 还有 pending 模块则继续 `audit-reviewer`；否则 `audit-verifier`
+- 唯一下一步：若 plan.json 还有 pending 模块 → 在**新会话** invoke `audit-reviewer`（处理下一个模块）；若都 done → 在**新会话** invoke `audit-verifier`
 
 ## Red Flags
 
@@ -110,6 +121,9 @@ next_action: audit-reviewer (next pending module) or audit-verifier (all done)
 - 在 finding 里写"建议引入新框架重构"（越权；如要重构走 `hf-design` / `hf-increment`）
 - `finding.category` 不在 `review_checklist.categories[].id` 内（无论自创还是从 base 11 抄进来）
 - `review_checklist.preset = c-cpp-embedded-soa` 但 finding 大量是 `typing` / `i18n-or-encoding`（清单跟项目不匹配；应在返回摘要里 challenge 用户）
+- **同一会话连扫多个模块** → 触发上下文压缩 / 滑窗淘汰，后续模块漏检率显著上升；必须每模块开新会话（per-module-context-protocol.md）
+- 摘要里写"我在这个模块同时也注意到了模块 X 的问题" → 跨模块联想说明上下文有交叉污染；本模块只出本模块 finding，跨模块建议写到下个模块的会话里
+- 处理一个 pending 模块完成后接着把 status=pending 的下一个模块也扫了 → 严重违反 Hard Gate，摘要必须 stop after 单模块
 
 ## Verification
 
@@ -117,8 +131,9 @@ next_action: audit-reviewer (next pending module) or audit-verifier (all done)
 - [ ] 每条 finding 含 `id` / `module` / `file` / `line_start` / `line_end` / `file_sha256` / `category` / `severity` / `confidence` / `description` / `evidence{code_snippet, reasoning, trigger_conditions, expected_vs_actual}` / `suggested_fix` / `reviewer{agent, ts}` / `verifier: {}`（占位）
 - [ ] 每条 finding 的 `category` 严格属于 `plan.review_checklist.categories[].id`（或回退情形下属于 base 11）
 - [ ] 行号在文件总行数范围内
-- [ ] `plan.json` 中该模块 status 已改为 `done`
-- [ ] 返回摘要含 `findings_path` + `finding_count` + `checklist_preset` + 按 severity/category 分布
+- [ ] `plan.json` 中**只有一个**模块 status 从 `pending` 变 `done`（本次 invocation 的目标模块）
+- [ ] 返回摘要含 `findings_path` + `finding_count` + `checklist_preset` + 按 severity/category 分布 + `remaining_pending_modules` + `next_action`（指引开新会话）
+- [ ] 本次会话**没有**触碰 `findings/<其它模块>.json` 或读取其它模块的源代码
 
 ## Reference Guide
 
@@ -129,3 +144,4 @@ next_action: audit-reviewer (next pending module) or audit-verifier (all done)
 | `references/scenario-presets/` | `c-cpp-embedded-soa.md` / `c-cpp-embedded.md` / `python-web-service.md` / `frontend-spa.md` / `generic.md` / `_template.md` 等场景预设 |
 | `references/evidence-contract.md` | 什么算"证据"、证据强度等级 |
 | `references/severity-rubric.md` | severity 5 档判定规则 |
+| `references/per-module-context-protocol.md` | **0.3.0 新增** 每模块独立上下文契约（一审跨模块独立性） |

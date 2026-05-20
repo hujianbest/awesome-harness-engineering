@@ -127,16 +127,22 @@ signals:
 
 - `target`：必填，要审查的目录（绝对或相对路径，如 `src/`、`src/garage_os/`）
 - `run_id`：可选，默认 `audit-<YYYY-MM-DD>-<HHMM>`
-- `module_budget_tokens`：可选，默认 30000（单模块期望输入 token 上限）
-- `module_budget_files`：可选，默认 20（单模块期望文件数上限）
+- `module_budget_tokens`：可选，**默认 12000**（单模块期望输入 token 上限；0.3.0 起从 30000 下调，配合"每模块独立上下文"协议——见 `../audit-reviewer/references/per-module-context-protocol.md`）
+- `module_budget_files`：可选，**默认 8**（单模块期望文件数上限；0.3.0 起从 20 下调）
 - `preset`：可选，跳过 Step 0.5 的 LLM 推断，直接采用指定 preset（如 `c-cpp-embedded-soa`、`python-web-service`、`frontend-spa`、`generic`）
 - `assume_yes`：可选，跳过 Step 0.5 的用户确认 prompt（CI / 脚本场景）
 
+> **0.3.0 设计理由**：每个模块在一审阶段都会被 `audit-reviewer` 在**独立、新鲜的对话上下文**中处理（per-module-context-protocol.md）。把单模块 token 预算压到 ~12k 让单次 round-trip 远低于主流模型的硬上限，避免上下文压缩 / 滑窗淘汰导致的 finding 漏检与 severity 漂移。倾向于"模块多、每个小"，而不是"模块少、每个大"。
+
 ### 2. 切模块（按优先级依次尝试）
+
+**核心目标**：尽量按 *目录树* 切，让每个模块都具备清晰的物理边界 + 单一职责，便于一审在新对话内独立审查。
 
 **策略 1：显式约定优先**
 
 读项目根 `AGENTS.md`，若有"模块概览"或类似段落（典型为 Markdown 表格、列含模块名 + 路径），按该清单切。本仓库 `AGENTS.md` 的"garage-agent 开发者参考 > 模块概览"段就是范例。
+
+> 即便 `AGENTS.md` 给出了模块清单，仍要按 budget 复核——若某条模块仍超 `module_budget_*`，必须走策略 4 再切到子目录。
 
 **策略 2：顶层目录切**
 
@@ -145,6 +151,18 @@ signals:
 **策略 3：聚类切**
 
 若策略 1/2 给出的模块仍超 `module_budget_*`，按"同目录 + 文件数 ≤ K + LoC ≤ M"再切。给出子模块路径，命名约定 `<parent-module>:<sub-name>`。
+
+**策略 4：深度目录树切（recommended for large repos）**
+
+策略 1-3 之后若仍有模块超预算（或单模块文件数 > 6 的"大模块"），按目录层级递归下钻：
+
+1. 第一轮：取 `target/` 一级目录作为模块候选
+2. 复核每个候选：若 `file_count > module_budget_files` 或 `loc_estimate > module_budget_tokens × 4`（按 4 字符/token 估），则展开它的二级子目录作为新模块，命名 `<parent>/<sub>`
+3. 再复核：若二级仍超，递归到三级，命名 `<parent>/<sub>/<sub2>`
+4. 一级目录内只有平铺文件、无子目录 → 走策略 3（同前缀文件聚类）
+5. 任何深度的"叶子目录"（无更深可下钻的层级）若仍超大，按文件大小排序每攒到 `module_budget_files` 个分一组，命名 `<leaf>:part-N`，并在 `notes` 提示 reviewer 该模块按文件名/字典序切分、需特别注意跨文件耦合
+
+**Strategy 4 是 0.3.0 的默认推荐**——优先按目录物理结构切，只有目录无法继续下钻时才退化为策略 3 的"同前缀文件聚类"。这样 reviewer 在新对话里看到的模块=一个明确的目录子树，跨文件依赖更收敛。
 
 ### 3. 估算每个模块的体量
 
@@ -168,23 +186,28 @@ run_id: <run_id>
 plan_path: .garage/code-audit/runs/<run_id>/plan.json
 profile: {languages, architectures, frameworks}
 review_checklist: {preset, category_count, user_confirmed}
+partition_strategy: <directory-tree | top-level | agents-md | hybrid>
 module_count: <int>
 total_files: <int>
 total_loc: <int>
 modules: [{name, path, priority, file_count, loc_estimate}, ...]
-next_action: audit-reviewer
+oversized_modules: [<name>, ...]    # file_count > budget*1.5 的模块（理论上不应出现；走策略 4 后仍残留则在此告警）
+next_action: audit-reviewer (one module per fresh session — see audit-reviewer/references/per-module-context-protocol.md)
 ```
+
+**模块数量提示**：在收紧后的预算下，10k LoC 项目通常切出 8-15 个模块属正常。若切出来 < 5 个模块，核查是否有未下钻的大目录；若 > 30 个模块，可考虑略放宽 budget 减少模块数。
 
 ## Output Contract
 
 - 写盘：`.garage/code-audit/runs/<run_id>/plan.json`（含 `profile` + `review_checklist` + `modules`；不写 finding，不写 verification）
-- 返回：`run_id` + `plan_path` + profile / checklist 摘要 + module 清单摘要
-- 唯一下一步：`audit-reviewer`（agent 接力时按 priority desc 排队，并把 `review_checklist.categories` 作为唯一允许的 `finding.category` 来源）
+- 返回：`run_id` + `plan_path` + profile / checklist 摘要 + `partition_strategy` + module 清单摘要 + 可选 `oversized_modules` 警告
+- 唯一下一步：`audit-reviewer`（agent 接力时按 priority desc 排队，并把 `review_checklist.categories` 作为唯一允许的 `finding.category` 来源；**每个模块在独立新会话内执行**，详见 `../audit-reviewer/references/per-module-context-protocol.md`）
 
 ## Red Flags
 
-- 模块切得太粗（如把整个 `src/` 当一个模块）→ reviewer 会因 token 超限失败
-- 模块切得太细（如每个 `.py` 一个模块）→ 失去模块级关联性 + 报告噪声大
+- 模块切得太粗（如把整个 `src/` 当一个模块）→ reviewer 上下文压缩 → 漏检 / severity 漂移；**0.3.0 起这是硬错误，必须走策略 4 再切**
+- 模块切得太细（如每个 `.py` 一个模块）→ 失去模块级关联性 + 报告噪声大；首选目录树切而不是单文件切
+- 仅靠"顶层目录切"（策略 2）就交差，未对超大顶层目录展开二级子目录 → 0.3.0 起视作未完成切分，必须走策略 4
 - 不写 `plan.json` 直接返回模块清单 → 中断恢复无依据
 - 在 plan 阶段提"我看到 X 文件可能有 bug" → 越权，不是本 skill 的职责
 - 忽略 `AGENTS.md` 已声明的模块概览，自己造一套 → 与项目约定漂移
@@ -197,18 +220,20 @@ next_action: audit-reviewer
 - [ ] `plan.json` 已落到 `.garage/code-audit/runs/<run_id>/`
 - [ ] 每个模块的 `loc_estimate` 与 `file_count` 已填
 - [ ] 每个模块的 `priority` 已分类
-- [ ] 单模块 `loc_estimate` 不超 `module_budget_*` 的 1.5 倍（超出必须再切）
+- [ ] 单模块 `loc_estimate` 不超 `module_budget_*` 的 1.5 倍（超出必须走策略 4 再切；residual oversized 必须在返回摘要 `oversized_modules` 显式列出）
+- [ ] `plan.partition_strategy` 字段已记录，取值 ∈ {`directory-tree`, `top-level`, `agents-md`, `hybrid`}
 - [ ] `plan.profile` 含 `languages` / `architectures` / `risk_focus` 三个非空字段
 - [ ] `plan.review_checklist.categories[]` 非空，每项含 `id` + `description`
 - [ ] 交互模式下 `profile.user_confirmed=true` 与 `review_checklist.user_confirmed=true`；`--yes` 模式下两者为 `false`（如实记录）
-- [ ] 返回摘要含 `run_id` + `plan_path` + profile/checklist 摘要 + `next_action=audit-reviewer`
+- [ ] 返回摘要含 `run_id` + `plan_path` + profile/checklist 摘要 + `partition_strategy` + `next_action=audit-reviewer`，并明示 reviewer 在每模块独立会话执行
 
 ## Reference Guide
 
 | 文件 | 用途 |
 |---|---|
-| `references/plan-schema.md` | `plan.json` 的 JSON schema + 字段定义（含 `profile` + `review_checklist`） |
-| `references/module-partition-rubric.md` | 三策略切分的详细判断规则与边界 |
+| `references/plan-schema.md` | `plan.json` 的 JSON schema + 字段定义（含 `profile` + `review_checklist` + `partition_strategy`） |
+| `references/module-partition-rubric.md` | 四策略切分的详细判断规则与边界（0.3.0 起新增策略 4 深度目录树） |
 | `references/project-profile-rubric.md` | 语言 + 架构识别信号清单（embedded / SOA / web / SPA / CLI 等）|
 | `../audit-reviewer/references/bug-taxonomy.md` | 基础 11 类 universal taxonomy + preset 引用 |
 | `../audit-reviewer/references/scenario-presets/` | 场景预设清单：`c-cpp-embedded-soa.md` / `python-web-service.md` / `frontend-spa.md` / `_template.md` |
+| `../audit-reviewer/references/per-module-context-protocol.md` | **0.3.0 新增** 每模块独立上下文契约：reviewer 必须在新会话执行单模块审查；agent 调度方式 |
