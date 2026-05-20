@@ -7,10 +7,19 @@
 | 字段 | 值 |
 |---|---|
 | `pack_id` | `code-audit` |
-| `version` | `0.2.0` |
+| `version` | `0.3.0` |
 | `schema_version` | `1` |
 | `skills` | 4 |
 | `agents` | 2 |
+
+### v0.3.0 新增（Per-Module Independent Context）
+
+- **每模块独立上下文一审**：`audit-reviewer` 每次 invocation 只扫一个模块；orchestrator agent 完成后立刻把控制权移交给用户、要求开新会话续跑下一个模块。彻底规避大 run 中后段模块因上下文堆叠 / 滑窗淘汰导致的命中率下降与 severity 漂移。完整契约见 `skills/audit-reviewer/references/per-module-context-protocol.md`
+- **默认 budgets 收紧**：`module_budget_tokens` 30000 → **12000**，`module_budget_files` 20 → **8**；让单模块上下文远低于模型硬上限，给注意力留富余
+- **目录树切分（partition strategy 4）**：`audit-planner` 默认按目录递归下钻切模块，命名 `<parent>/<sub>` 保留路径结构；`plan.json` 新增 `partition_strategy` 字段（取值 `agents-md` / `top-level` / `directory-tree` / `hybrid`）
+- **`audit-reviewer` 新 Hard Gate**：单次 invocation 最多扫一个模块；同会话连扫多模块视作违反契约
+- **`code-audit-reviewer-agent` 新 `--resume` / `--module` / `--auto-loop` 参数**：默认每模块新会话；`--auto-loop` 是 CI 降级模式，会在 audit-log 写 warning
+- **完全向后兼容**：0.1.0/0.2.0 时代的 plan.json 仍可直接被 0.3.0 reviewer / renderer 处理；只是 budgets 较宽，建议下次重审时让 planner 重写
 
 ### v0.2.0 新增
 
@@ -30,16 +39,21 @@
 
 本 pack 的差异化关键词：**存量全量代码、模块切分、双 agent 确认、HTML/Excel 报告、可重复执行（每次一个 run-id）**。
 
-## 双 Agent 确认流程
+## 双 Agent 确认流程（0.3.0 — 每模块独立上下文）
 
 ```
-用户请求审查 → [code-audit-reviewer-agent]
+用户请求审查 → [会话 1: code-audit-reviewer-agent]
                   1. audit-planner Step 0   识别 profile（语言 + 架构）
                   2. audit-planner Step 0.5 推荐 review_checklist（preset），与用户握手确认
-                  3. audit-planner Step 1-4 切模块 → plan.json（含 profile + review_checklist + modules）
-                  4. audit-reviewer  逐模块出 finding 草稿（category ∈ review_checklist）
+                  3. audit-planner Step 1-4 切模块（默认目录树策略 4）→ plan.json
+                  4. audit-reviewer  扫【一个】模块出 finding 草稿（category ∈ review_checklist）
+                  ↓ 移交：开新会话续跑下一模块
+              [会话 2: code-audit-reviewer-agent --resume <run_id>]
+                  4. audit-reviewer  扫下一个模块 ...
                   ↓
-              [code-audit-verifier-agent]   (独立上下文，看不到一审推理过程)
+              ... 重复直到 plan.modules 全部 done ...
+                  ↓
+              [会话 N+1: code-audit-verifier-agent]    (独立上下文，看不到一审推理过程)
                   5. audit-verifier  对每条 finding 独立复核 → confirmed / rejected / upgrade / downgrade / needs_more_evidence
                   6. audit-reporter  汇总并渲染 HTML（含 profile + checklist 头部）+ 可选 Excel
                   ↓
@@ -51,6 +65,13 @@
 - 避免推理污染：verifier 启动时只看 finding 的 `description + evidence + 原代码`，看不到一审内部推理草稿
 - 角色分离：reviewer 鼓励"广撒网"；verifier 鼓励"严格、敢于反驳"
 - 可追溯：record 清楚记录"谁判了、判了啥、为什么"
+
+**为什么一审还要每模块开新会话**（0.3.0 新增独立性）：
+
+- LLM 上下文有硬上限；一次塞 N 个模块的代码 + finding 草稿会触发宿主或模型的上下文压缩 / 滑窗淘汰
+- 被压缩后，靠后的模块审查变成"基于摘要"而非"基于原文"，命中率显著下降，严重度判断也容易跟随前序 finding 漂移
+- 新会话保证每个模块都拿到同等的"注意力预算"，与 reviewer↔verifier 的独立性形成完整闭环
+- 详见 `skills/audit-reviewer/references/per-module-context-protocol.md`
 
 ## Skills
 
@@ -193,7 +214,23 @@ OpenCode 把 `.opencode/agent/<agent>.md` 注册为可调用 agent。在 OpenCod
 然后说明你要审查的目标目录
 ```
 
-agent 在一次会话内会按 `audit-planner` → `audit-reviewer`（逐模块）顺序工作，把产出落到 `.garage/code-audit/runs/<run-id>/findings/<module>.json`。完成后它会输出一条**移交消息**，指引你**在新会话**启动二审 agent。
+**v0.3.0 默认行为**：agent 在第一个会话里完成 `audit-planner`（识别 profile + 切模块）+ 一个模块的 `audit-reviewer`，落产物到 `.garage/code-audit/runs/<run-id>/`，然后输出**移交消息**告诉你在【新会话】用 `--resume <run-id>` 续跑下一模块；所有模块 done 后再输出最终移交消息，指引你在【另一个新会话】启动二审 agent。
+
+```text
+# 续跑下一模块（在新对话里）
+请用 code-audit-reviewer-agent --resume run audit-2026-05-20-0935 处理下一个模块
+
+# 或显式指定模块
+请用 code-audit-reviewer-agent --resume run audit-2026-05-20-0935 --module knowledge/store
+```
+
+CI / 脚本场景如果不在意单次审查精度可以用 `--auto-loop`：
+
+```text
+请用 code-audit-reviewer-agent 审查 src/ --auto-loop
+```
+
+agent 会在同一会话连扫所有模块（速度快但后段模块可能受上下文压缩影响），并在 audit-log 写 warning。
 
 #### Claude Code 场景
 
@@ -347,6 +384,12 @@ $ open .garage/code-audit/runs/audit-2026-05-16-0935/reports/report.html
 **Q: 一定要分两个会话跑吗？**
 A: **强烈建议**。同一个会话里跑 verifier 等于让二审看见一审的中间推理，污染独立判断（详见 `independence-protocol.md`）。如果宿主不支持显式 fresh context，至少要让 verifier 在判决时**只引用 finding 字段而非对话历史**，但这是降级方案。
 
+**Q: 为什么一审 0.3.0 也要每模块新开会话？太麻烦了**
+A: 出于审查精度。LLM 上下文有硬上限，一审一次扫 5+ 个模块时，上下文会触发自动压缩/滑窗淘汰，靠后模块的命中率会肉眼可见地降低、severity 判断也跟随前序 finding 漂移。每模块新会话保证每个模块都拿到同等"注意力预算"。如果你确实想"一把跑完"，传 `--auto-loop`（agent 会在 audit-log 写 warning，结果可能受影响，建议事后让 verifier 兜底）。完整解释见 `skills/audit-reviewer/references/per-module-context-protocol.md`。
+
+**Q: 模块切得太细了，看着像"每个文件一个模块"**
+A: 0.3.0 默认 budget=token 12000 / files 8，确实比 0.2.0 紧。可以在第一次跑时显式调宽：`module_budget_tokens=20000 module_budget_files=15`。但**不建议**回到 30000/20——那是引发上下文压缩的临界值。中间值（如 16000/10）是较好的折衷。
+
 **Q: agent 不认识 `code-audit-reviewer-agent` 怎么办？**
 A: 确认（1）你跑过 `garage init --hosts <你的宿主>`；（2）`.opencode/agent/code-audit-reviewer-agent.md`（或 `.claude/agents/...`）真实存在；（3）宿主在你启动会话后已经重新加载 agent 目录（OpenCode / Claude Code 通常自动；个别情况需要重启会话）。
 
@@ -373,6 +416,8 @@ A: 不会阻断 HTML 渲染。`render_xlsx.py` 默认 lenient 模式，缺 openp
 | B | `audit-reporter/scripts/render_html.py` + 模板 + 单测 | ✅ |
 | C | `render_xlsx.py` + `openpyxl` 依赖 + 单测 | ✅ |
 | D | 端到端 dogfood：审 `src/garage_os/runtime/` + walkthrough；详见 `DOGFOOD-EXAMPLE.md` | ✅ |
+| E (v0.2.0) | 项目 profile + review_checklist + scenario presets | ✅ |
+| F (v0.3.0) | per-module-context-protocol + 收紧 budgets + 目录树 partition strategy 4 | ✅ |
 
 ## Dogfood 参考结果
 

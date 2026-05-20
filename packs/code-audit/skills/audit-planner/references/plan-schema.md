@@ -47,20 +47,21 @@
     "user_confirmed": true,
     "confirmed_at": "2026-05-18T08:31:02Z"
   },
+  "partition_strategy": "directory-tree",
   "budgets": {
-    "module_budget_tokens": 30000,
-    "module_budget_files": 20
+    "module_budget_tokens": 12000,
+    "module_budget_files": 8
   },
   "modules": [
     {
-      "name": "runtime",
-      "path": "src/garage_os/runtime/",
+      "name": "runtime/state-machine",
+      "path": "src/garage_os/runtime/state_machine/",
       "priority": "high",
-      "file_count": 8,
-      "loc_estimate": 1842,
+      "file_count": 4,
+      "loc_estimate": 612,
       "languages": ["python"],
       "status": "pending",
-      "notes": "Contains session lifecycle + state machine + error handler — runtime correctness critical."
+      "notes": "State machine + transitions; reviewer 在新会话独立审查 (per-module-context-protocol.md)"
     }
   ],
   "total_files": 64,
@@ -80,6 +81,7 @@
 | `created_at` | ✅ | `str` | ISO 8601 UTC |
 | `profile` | ❌ | `object` | 项目 profile（语言+架构+frameworks+risk_focus）。**0.2.0 起新增；旧 plan.json 缺失时下游按 `generic` 处理** |
 | `review_checklist` | ❌ | `object` | 本次审查使用的 bug category 清单（preset 或自定义）。**0.2.0 起新增；旧 plan.json 缺失时 reviewer + renderer 回退 base 11 类** |
+| `partition_strategy` | ❌ | `str` enum | 切模块时的主导策略。**0.3.0 起新增**；取值 ∈ {`agents-md`, `top-level`, `directory-tree`, `hybrid`}；缺失时默认 `top-level`（pre-0.3.0 兼容） |
 | `budgets` | ✅ | `object` | 单模块预算约束 |
 | `modules` | ✅ | `array` | 模块清单，至少 1 项 |
 | `total_files` | ✅ | `int` | 所有模块 file_count 之和 |
@@ -130,10 +132,12 @@
 
 ### `budgets`
 
-| 字段 | 必需 | 类型 | 默认 | 说明 |
-|---|---|---|---|---|
-| `module_budget_tokens` | ✅ | `int` | `30000` | 单模块期望输入 token 上限 |
-| `module_budget_files` | ✅ | `int` | `20` | 单模块期望文件数上限 |
+| 字段 | 必需 | 类型 | 默认（0.3.0+） | 0.2.0 默认 | 说明 |
+|---|---|---|---|---|---|
+| `module_budget_tokens` | ✅ | `int` | `12000` | `30000` | 单模块期望输入 token 上限。**0.3.0 起从 30000 下调到 12000，配合每模块独立上下文协议**避免上下文压缩 |
+| `module_budget_files` | ✅ | `int` | `8` | `20` | 单模块期望文件数上限 |
+
+**reviewer 兼容性**：旧 plan.json（0.2.0 budgets）依然可用，reviewer 不强制改写；只是切分得更稀疏，建议下次重审时让 planner 重写 plan。
 
 ### `modules[]`
 

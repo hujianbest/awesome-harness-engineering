@@ -2,6 +2,8 @@
 
 本文档记录 Slice D 完成时使用 `code-audit` pack 端到端审查本仓库 `src/garage_os/runtime/` 模块的结果。作为下游用户和未来贡献者的 reference example。
 
+> **v0.3.0 备注**：这个 dogfood 是 v0.2.0 时代的产物，单模块 6 个文件刚好落在 0.3.0 收紧后的 budget（files=8）边缘，所以**仍可在一个会话里跑完一审**。审查更大模块时一审会按目录树切成多个子模块，每个子模块都需要在新对话里执行一次 `code-audit-reviewer-agent --resume`（详见 `skills/audit-reviewer/references/per-module-context-protocol.md`）。
+
 ## 运行参数
 
 - **target**: `src/garage_os/runtime/`

@@ -54,7 +54,7 @@ from render_html import (
     derive_allowed_categories,
 )
 
-PACK_VERSION = "0.2.0"
+PACK_VERSION = "0.3.0"
 
 try:
     from openpyxl import Workbook
