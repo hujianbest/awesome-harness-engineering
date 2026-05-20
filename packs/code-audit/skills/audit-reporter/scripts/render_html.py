@@ -45,7 +45,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-PACK_VERSION = "0.2.0"
+PACK_VERSION = "0.2.1"
 
 VALID_SEVERITIES = ("critical", "high", "medium", "low", "info")
 VALID_CONFIDENCES = ("high", "medium", "low")

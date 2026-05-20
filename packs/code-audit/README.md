@@ -7,18 +7,28 @@
 | 字段 | 值 |
 |---|---|
 | `pack_id` | `code-audit` |
-| `version` | `0.2.0` |
+| `version` | `0.2.1` |
 | `schema_version` | `1` |
 | `skills` | 4 |
 | `agents` | 2 |
 
-### v0.2.0 新增
+### v0.2.1 修复
+
+v0.2.0 引入的"项目 profile + review_checklist + 用户确认"机制在实测中暴露了一个执行层 bug：**LLM 经常把 checklist 打印给用户后, 在同一条回复里继续调 audit-planner 切模块 + audit-reviewer 扫模块, 完全没有真的"停下来等用户确认"**。结果用户看到的是一份 module 扫描结果, 而不是"先让我对齐 checklist 再开扫"。
+
+0.2.1 用三层手段把握手契约真正落到位：
+
+1. **agent.md + planner SKILL.md 描述强化**：把"必须停下等用户回复"从段落中段移到顶部 `description` + `⛔ CRITICAL` callout，明确"agent 自动模式"不构成跳过握手的理由；只有用户在原始请求里写 `--yes` / `跳过握手` / `skip handshake` / `直接用 <preset> 开始` 等显式关键词才允许 bypass
+2. **新增 `audit-planner/references/handshake-protocol.md`**：详细的 GOOD vs BAD 例子 + agent self-check 清单, 治"LLM 把握手当文档读"的根因
+3. **audit-reviewer 加 Handshake Re-Gate**（二次闸门）：reviewer 加载 plan.json 后, 若 `review_checklist.user_confirmed=false` 或 `review_checklist` 缺失, **不进入扫描**, 而是再做一轮轻量握手（`confirm` / `del` / `add` / `edit` / `restart-planner` / `skip-and-warn`）
+
+### v0.2.0 新增（保留）
 
 - **项目 profile 自动识别**：audit-planner Step 0 检测语言 + 架构 + frameworks（嵌入式 / SOA / web / SPA / CLI / 数据 pipeline / generic）
 - **针对性 review checklist + 用户确认**：Step 0.5 基于 profile 选 preset，回显给用户确认/调整后再切模块
 - **场景预设**：`c-cpp-embedded-soa` / `c-cpp-embedded` / `python-web-service` / `frontend-spa` / `generic`（详见 `skills/audit-reviewer/references/scenario-presets/`），可自定义扩展
 - **finding.category 由 checklist 动态决定**：不再是固定 11 类；renderer 软验证 + report header 展示 profile/checklist
-- **完全向后兼容**：0.1.0 时代的 plan.json（无 profile/review_checklist 字段）按 base 11 通用 taxonomy 处理
+- **完全向后兼容**：0.1.0 时代的 plan.json（无 profile/review_checklist 字段）按 base 11 通用 taxonomy 处理（reviewer 会触发 Handshake Re-Gate 跟用户对齐一次）
 
 ## 与其它 review 相关 skill 的边界
 

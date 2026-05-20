@@ -1,6 +1,6 @@
 ---
 name: audit-planner
-description: Use when starting an existing-code bug audit on a repository or large directory tree. First detects project language + architecture (e.g. C/C++ embedded SOA, Python web service, frontend SPA), proposes a tailored review checklist (scenario-specific bug categories) for user confirmation, then slices the codebase into modules within a per-module token budget. Produces plan.json with profile + review_checklist + modules that downstream audit-reviewer consumes module-by-module. Not for PR diff review (use hf-code-review) or for actually finding bugs (use audit-reviewer).
+description: Use when starting an existing-code bug audit on a repository or large directory tree. CRITICAL — this skill MUST stop and wait for explicit user confirmation of the review_checklist (Step 0.5) BEFORE it slices modules or writes the modules array of plan.json. It first detects project language + architecture (e.g. C/C++ embedded SOA, Python web service, frontend SPA), proposes a tailored review checklist of bug categories, prints it in a "=== ⏸️ 等待确认 ===" block, returns control to the user, and waits for an "ok" / "del N" / "add" / "swap-preset" / "edit N" reply. Only after the user has typed "ok" (or an equivalent confirmation, or an explicit "--yes" / "skip handshake" bypass in the original request) may slicing proceed. Produces plan.json with profile + review_checklist + modules that downstream audit-reviewer consumes module-by-module. Not for PR diff review (use hf-code-review) or for actually finding bugs (use audit-reviewer).
 ---
 
 # Audit Planner
@@ -10,9 +10,34 @@ description: Use when starting an existing-code bug audit on a repository or lar
 本 skill 在切模块**之前**还有两步关键工作：
 
 1. **识别项目编程语言 + 架构**（如 C/C++ 嵌入式 SOA、Python web 服务、frontend SPA）
-2. **基于项目 profile 生成针对性的 bug 检视清单（review_checklist）并与用户确认**
+2. **基于项目 profile 生成针对性的 bug 检视清单（review_checklist）并与用户握手确认**
 
 通用 11 类 bug 分类是基线（base 11），但实际审查时使用的 category 集合**由用户与 LLM 协商后的 `review_checklist` 决定**——比如 C/C++ 嵌入式 SOA 项目会聚焦 memory-safety / undefined-behavior / isr-safety / ipc-contract / real-time 等，而不是宽泛的 11 类。
+
+---
+
+## ⛔ CRITICAL — Handshake before slicing (read this first)
+
+**Step 0.5 必须真正停下来等用户回答，再进入 Step 1 切模块**。不是写文档式的"请确认"，而是真正中止本轮 tool 调用，把控制权交还给用户，等用户在新一轮消息里输入指令。详见 `references/handshake-protocol.md`。
+
+握手没完成（即用户没在对话里显式回 `ok` 或等价指令）之前**禁止**：
+
+- ❌ 写任何 `plan.json` 字段（包括 modules 段、profile.user_confirmed=true、review_checklist.user_confirmed=true）
+- ❌ 把 `modules[]` 数组写入 plan.json
+- ❌ 进入 Step 1 / 2 / 3 / 4
+- ❌ 把"草案 checklist"和"已开始切模块"放在同一条 LLM 回复里
+
+握手可以**跳过的唯一情况**：用户在本轮原始请求里**显式**写了下列任一关键词——
+
+- `--yes` / `-y` / `assume_yes`
+- `跳过确认` / `跳过握手` / `skip handshake` / `auto-yes`
+- `直接开始` 同时附带了具体 preset id
+
+**不算"显式同意"**：
+
+- 用户只说"审查 X 模块" → 默认请求，不是同意跳过
+- LLM/agent 内部判断"我在自动跑" → 没用，agent 无权代用户同意
+- 用户描述了项目（"项目是 C/C++ 嵌入式 SOA"） → 这是 profile 提示，不是 checklist 同意
 
 ## When to Use
 
@@ -33,7 +58,7 @@ description: Use when starting an existing-code bug audit on a repository or lar
 - 不读 SKILL.md 描述外的项目代码内容，只看目录结构、文件大小、`AGENTS.md` 模块概览段；profile 推断阶段允许 sniff 少量代表性文件（构建脚本、入口、IDL/proto/arxml、headers），但不做深度分析
 - 不出 finding（即便扫目录时已感觉到可疑），只出"审查计划"
 - 单模块预算超限必须再切，不允许把超大模块原样塞给 reviewer
-- **必须把 detected profile + 推荐的 review_checklist 显式回放给用户、等待确认/修改后才能写 `plan.json`**（除非显式 `--yes` 自动接受）。`plan.json` 内 `profile.user_confirmed` 与 `review_checklist.user_confirmed` 字段记录这次握手
+- **必须把 detected profile + 推荐的 review_checklist 在 0.5.b 模板里回显, 并在 0.5.c 真正停下来等用户回答, 收到用户 `ok`（或其它修改指令处理完后再次 `ok`）之后才能写 `plan.json` 任何字段**。"我作为 agent 在自动跑"不构成跳过握手的理由——只有用户在原始请求里**显式**写了 0.5.e 列出的 bypass 关键词才允许跳过。`plan.json` 内 `profile.user_confirmed` 与 `review_checklist.user_confirmed` 字段如实记录这次握手实际是否发生
 
 ## Workflow
 
@@ -68,58 +93,86 @@ description: Use when starting an existing-code bug audit on a repository or lar
 }
 ```
 
-### 0.5. 生成 review_checklist 并与用户确认
+### 0.5. 🛑 HANDSHAKE — 生成 review_checklist, 回显, 然后 STOP
+
+这是整个 skill 里**最容易被错误跳过**的一步。完整流程见 `references/handshake-protocol.md`（含 GOOD vs BAD 例子）。
+
+#### 0.5.a 选 preset + 装载 draft checklist（不写盘）
 
 依 detected profile，从 `../audit-reviewer/references/scenario-presets/` 选最匹配的 preset（如 `c-cpp-embedded-soa.md` / `python-web-service.md` / `frontend-spa.md`）；多 architecture 命中时按"风险面更大"取主导（embedded + soa 优先 embedded-soa；web + cli 优先 web）。
 
-把 preset 的 categories 装载为 draft `review_checklist`，**回显给用户**：
+把 preset 的 categories 在内存里组装成 draft `review_checklist`（**这一步不写 plan.json，不写任何其它文件**）。
+
+#### 0.5.b 按严格模板回显 + 显式"等待确认"段
+
+把 draft 用下面**严格模板**打印成 **一条** 消息：
 
 ```
 === Detected Project Profile ===
-languages:      c, cpp
-architectures:  embedded, soa
-frameworks:     FreeRTOS, AUTOSAR-Classic
-risk_focus:     memory-safety, isr-safety, ipc-contract, real-time
+languages:      <c, cpp>
+architectures:  <embedded, soa>
+frameworks:     <FreeRTOS, AUTOSAR-Classic, SOME/IP>
+risk_focus:     <memory-safety, isr-safety, ipc-contract, real-time>
 signals:
-  - src/board/stm32f4xx_hal_conf.h
-  - src/rtos/FreeRTOSConfig.h
-  - ipc/proto/*.arxml (12 service contracts)
-  - linker script bsp/STM32F407.ld
+  - <src/board/stm32f4xx_hal_conf.h>
+  - <src/rtos/FreeRTOSConfig.h>
+  - <ipc/proto/*.arxml (12 service contracts)>
+  - <linker script bsp/STM32F407.ld>
 
-=== Suggested Review Checklist (preset: c-cpp-embedded-soa) ===
+=== Suggested Review Checklist (preset: <c-cpp-embedded-soa>) ===
  1. memory-safety        — UAF / double-free / buffer overflow / OOB / dangling pointer / uninit read
  2. undefined-behavior   — signed overflow / strict aliasing / type punning / alignment / null deref
  3. isr-safety           — ISR 内阻塞调用 / 非 reentrant API / 缺 volatile / 优先级反转
- 4. concurrency          — RTOS 任务间共享状态无锁 / 双锁顺序 / 信号量错用
- 5. real-time            — 时序超 deadline / 看门狗未喂 / 长循环阻塞调度
- 6. resource-management  — 堆未释放 / mutex/semaphore 未归还 / 句柄泄露 / 初始化顺序错
- 7. error-handling       — 返回值未检 / errno 未处理 / 异常路径吞错
- 8. ipc-contract         — SOA IDL 字段不匹配 / 版本兼容 / 序列化端序 / 必填字段缺失
- 9. hardware-resource    — 寄存器访问顺序 / DMA / cache 一致性 / 时钟门控错配
-10. security             — 外部输入未做长度/边界校验 / 弱密钥 / TOCTOU
-11. portability          — endianness 假设 / sizeof 假设 / packed struct ABI
-12. build-and-config     — 编译宏配置错 / 链接顺序 / FPU/MPU 选项与硬件不符
-13. dead-code            — 不可达分支 / 仅 debug 路径误入 release
-14. contract-violation   — header 与 impl 漂移 / AUTOSAR/RTE 契约不符
-15. coding-standard      — MISRA-C / CERT-C / AUTOSAR C++14 严重违反（仅高风险条款）
+ ... (完整列举所有 categories, 不省略)
+N. coding-standard       — MISRA-C / CERT-C / AUTOSAR C++14 严重违反（仅高风险条款）
 
-请确认 (按一行一条):
-- type [ok]  接受全部
-- type [del N1,N2,...]  删除某几条
-- type [add <id>:<description>]  新增自定义类别
-- type [swap-preset <preset-name>]  切换 preset
-- type [edit N <new description>]  改某条描述
+=== ⏸️ 等待确认 ===
+请回复以下任一指令再继续:
+- ok                                — 接受当前 checklist, 开始切模块 + 扫描
+- del N1,N2,...                     — 删除某几条（按序号）
+- add <id>:<description>            — 新增自定义类别
+- swap-preset <preset-name>         — 切换 preset
+- edit N <new description>          — 改某条描述
+- skip handshake                    — 强制跳过握手, 直接用当前 checklist（会标记 user_confirmed=false）
 ```
 
-**等用户回答后才落 plan.json**。用户的修改写入 draft，重复显示直至 `ok`；落盘时：
+#### 0.5.c 🛑 STOP — 立刻结束本轮 tool 调用
 
-- `review_checklist.preset = "<chosen-preset>"`（用户自定义则 `"custom"`）
-- `review_checklist.categories[]` = 最终用户确认的列表
-- `review_checklist.user_confirmed = true`
-- `review_checklist.confirmed_at = <UTC ISO 8601>`
-- 同步 `profile.user_confirmed = true` + `profile.confirmed_at`
+**回显完上面这条消息后，必须立即结束本轮回复**，不再调任何工具。控制权完全回到用户。
 
-非交互场景（`--yes` / agent 自动模式）：跳过确认，直接采用 preset 默认 checklist，但仍把 `user_confirmed=false` 写入并在返回摘要里提示用户事后可手编 `plan.json` 重跑 reviewer。
+判断"我是不是真的停下了"的 self-check：
+
+1. 我有没有在同一条回复里既输出 `=== ⏸️ 等待确认 ===` 又紧接着说"已开始切模块"或"audit-reviewer 正在扫 module=X"？如果是，错。
+2. 我有没有在用户没有回 `ok` / `del` / `add` / `swap-preset` / `edit` / `skip handshake` 之前就调了任何写盘工具（写 plan.json / findings/）？如果是，错。
+3. 我有没有在用户原始请求里实实在在地看到了 `--yes` / `-y` / `跳过确认` / `skip handshake` / `auto-yes` 等 bypass 关键词？没有就必须等。
+
+#### 0.5.d 用户回复后的处理（在下一轮消息里做）
+
+下一轮用户消息进来后按指令处理：
+
+| 用户回复 | 行为 |
+|---|---|
+| `ok` / `确认` / `yes` / `好的` / `开始` | draft 落 plan.json: `user_confirmed=true` + `confirmed_at=<UTC ISO 8601>`；进入 Step 1 切模块 |
+| `del N1,N2,...` | 从 draft 删除对应序号 → 回到 0.5.b 重新回显 → 0.5.c 再 STOP |
+| `add <id>:<description>` | 把新 category 追加到 draft → 回到 0.5.b 重新回显 → 0.5.c 再 STOP |
+| `swap-preset <name>` | 换 preset 的 categories → 回到 0.5.b 重新回显 → 0.5.c 再 STOP |
+| `edit N <description>` | 把第 N 条 description 改写 → 回到 0.5.b 重新回显 → 0.5.c 再 STOP |
+| `skip handshake` / `--yes` | draft 落 plan.json: `user_confirmed=false`（如实记录）；进入 Step 1，但在最终返回摘要里加 ⚠ 提示用户 |
+| 其它 / 没意会 | 友好澄清"我需要你回复 ok / del / add / swap-preset / edit / skip handshake 之一才能继续"，然后**继续等** |
+
+#### 0.5.e 唯一允许跳过 0.5.c 的情况（"显式 bypass"）
+
+只有当用户在本轮**原始请求**里写了下列任一关键词，才允许直接走 Step 1（仍把 `user_confirmed=false` 如实写入）：
+
+- `--yes` / `-y` / `assume_yes`
+- `跳过确认` / `跳过握手` / `skip handshake` / `auto-yes`
+- `直接开始` 同时附带了具体 preset id（如"直接用 c-cpp-embedded-soa 开始"）
+
+**注意以下情况不算 bypass**：
+
+- "我在自动模式下运行" / "我是 agent" → 不算（agent 没有同意权）
+- "项目是 C/C++ 嵌入式 SOA" → 只是 profile 信号，不是同意 checklist
+- "审查 X 模块" → 默认请求，不是同意
 
 ### 1. 解析目标
 
@@ -188,25 +241,31 @@ next_action: audit-reviewer
 - 不写 `plan.json` 直接返回模块清单 → 中断恢复无依据
 - 在 plan 阶段提"我看到 X 文件可能有 bug" → 越权，不是本 skill 的职责
 - 忽略 `AGENTS.md` 已声明的模块概览，自己造一套 → 与项目约定漂移
-- 跳过 Step 0.5 用户确认却写 `user_confirmed=true` → 严重违反握手契约
+- 在 0.5.b 回显 checklist 后**同一条消息里**接着说"已开始切模块"或"audit-reviewer 正在扫"→ 没有真正停在 0.5.c
+- 用户没回 `ok` 就把 `modules[]` 写进 plan.json → 跳过握手
+- 跳过 Step 0.5 用户确认却写 `user_confirmed=true` → 严重违反握手契约（即使是 `--yes` bypass 也应写 `false`）
+- 把"我作为 agent 在自动跑"当成跳过握手的理由 → 不允许，只有用户原始请求里 0.5.e 列出的 bypass 关键词才允许
+- 用户描述了项目（"是 C/C++ 嵌入式 SOA"）就跳过 0.5.c 直接落 `user_confirmed=true` → 描述 ≠ 同意 checklist
 - 用户已经明确说"项目是 C/C++ 嵌入式 SOA"还采用 `generic` preset → 无视用户输入
 - review_checklist 与项目 profile 严重不匹配（如 Python web 服务却用 `c-cpp-embedded-soa` preset）→ 必须在回显时显式 challenge
 
 ## Verification
 
+- [ ] **本次会话至少出现过一次"在 0.5.b 回显 checklist → 0.5.c STOP → 用户在下一轮消息里回 ok/del/add/swap-preset/edit/skip handshake"的回合**（或用户原始请求里有 0.5.e 列出的 bypass 关键词）
 - [ ] `plan.json` 已落到 `.garage/code-audit/runs/<run_id>/`
 - [ ] 每个模块的 `loc_estimate` 与 `file_count` 已填
 - [ ] 每个模块的 `priority` 已分类
 - [ ] 单模块 `loc_estimate` 不超 `module_budget_*` 的 1.5 倍（超出必须再切）
 - [ ] `plan.profile` 含 `languages` / `architectures` / `risk_focus` 三个非空字段
 - [ ] `plan.review_checklist.categories[]` 非空，每项含 `id` + `description`
-- [ ] 交互模式下 `profile.user_confirmed=true` 与 `review_checklist.user_confirmed=true`；`--yes` 模式下两者为 `false`（如实记录）
-- [ ] 返回摘要含 `run_id` + `plan_path` + profile/checklist 摘要 + `next_action=audit-reviewer`
+- [ ] `profile.user_confirmed` / `review_checklist.user_confirmed` 与实际交互一致：用户回 `ok` → `true` + `confirmed_at` 填；用户走 0.5.e bypass → `false` + `confirmed_at` 不填
+- [ ] 返回摘要含 `run_id` + `plan_path` + profile/checklist 摘要 + `next_action=audit-reviewer`；若 `user_confirmed=false` 摘要里附 ⚠ 提示
 
 ## Reference Guide
 
 | 文件 | 用途 |
 |---|---|
+| `references/handshake-protocol.md` | **必读**：Step 0.5 握手的完整脚本、GOOD vs BAD 例子、anti-pattern cheatsheet、验证清单 |
 | `references/plan-schema.md` | `plan.json` 的 JSON schema + 字段定义（含 `profile` + `review_checklist`） |
 | `references/module-partition-rubric.md` | 三策略切分的详细判断规则与边界 |
 | `references/project-profile-rubric.md` | 语言 + 架构识别信号清单（embedded / SOA / web / SPA / CLI 等）|
